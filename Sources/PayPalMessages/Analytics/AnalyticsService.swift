@@ -62,10 +62,10 @@ class LogSender: LogSendable {
         // Create authorization header from client_id
         var authString: String = "Basic "
         guard let jsonAny = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-            let jsonData = jsonAny["data"] as? AnyObject,
-            let clientId = jsonData["client_id"] as? String,
-            let data = clientId.data(using: .utf8) else { return }
-        authString += data.base64EncodedString()
+              let jsonData = jsonAny["data"] as? AnyObject,
+              let clientId = jsonData["client_id"] as? String,
+              let clientIdData = clientId.data(using: .utf8) else { return }
+        authString += clientIdData.base64EncodedString()
 
         let headers: [HTTPHeader: String] = [
             .acceptLanguage: "en_US",
