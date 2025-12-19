@@ -1,6 +1,6 @@
 import Foundation
 
-class CloudEvent: Encodable {
+final class CloudEvent: Encodable {
 
     let specVersion = "1.0"
     let type = "com.paypal.credit.upstream-presentment.v1"
@@ -24,9 +24,7 @@ class CloudEvent: Encodable {
         var map: [String: CloudEvent] = [:]
 
         for logger in loggers {
-            if logger.events.isEmpty {
-                continue
-            }
+            guard !logger.events.isEmpty else { continue }
 
             let environment: Environment
             let clientID: String
@@ -36,13 +34,18 @@ class CloudEvent: Encodable {
 
             switch logger.component {
             case .message(let weakMessage):
-                guard let message = weakMessage.value else { continue }
+                guard let messageView = weakMessage.value else { continue }
 
-                environment = message.environment
-                clientID = message.clientID
-                merchantID = message.merchantID
-                partnerAttributionID = message.partnerAttributionID
-                merchantProfileHash = message.merchantProfileHash
+                let config = messageView.getConfig()
+
+                environment = config.data.environment
+                clientID = config.data.clientID
+                merchantID = config.data.merchantID
+                partnerAttributionID = config.data.partnerAttributionID
+
+                // After refactor, messageView no longer exposes merchantProfileHash.
+                // Best-effort: read it from logger.dynamicData, if present as String.
+                merchantProfileHash = extractMerchantProfileHash(from: logger.dynamicData)
 
             case .modal(let weakModal):
                 guard let modal = weakModal.value else { continue }
@@ -91,7 +94,6 @@ class CloudEvent: Encodable {
         self.merchantProfileHash = merchantProfileHash
     }
 
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CloudEventKey.self)
 
@@ -119,6 +121,29 @@ class CloudEvent: Encodable {
         try dataContainer.encodeIfPresent(loggers, forKey: .components)
     }
 
+    // MARK: - Helpers
+
+    private static func extractMerchantProfileHash(from dynamicData: [String: AnyCodable]) -> String? {
+        // Keep this minimal and robust: only accept an actual String.
+        // Adjust the key names if you know the exact one returned in response.trackingData.
+        let candidateKeys = [
+            "merchant_profile_hash",
+            "merchantProfileHash",
+            "merchant_config"
+        ]
+
+        for key in candidateKeys {
+            guard let any = dynamicData[key]?.value else { continue }
+            if let string = any as? String, !string.isEmpty {
+                return string
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - Coding Keys
+
     enum CloudEventKey: CodingKey {
         case specversion
         case id
@@ -136,13 +161,17 @@ class CloudEvent: Encodable {
         case merchantID = "merchant_id"
         case partnerAttributionID = "partner_attribution_id"
         case merchantProfileHash = "merchant_profile_hash"
+
         // Global Details
         case integrationVersion = "integration_version"
         case integrationName = "integration_name"
+
         // Build Details
         case libVersion = "lib_version"
         case integrationType = "integration_type"
+
         // Component Details
         case components = "components"
     }
 }
+
