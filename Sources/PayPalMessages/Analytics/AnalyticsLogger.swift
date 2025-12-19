@@ -1,8 +1,7 @@
 import Foundation
 import UIKit
 
-class Weak<T: AnyObject> {
-
+final class Weak<T: AnyObject> {
     weak var value: T?
 
     init(_ value: T?) {
@@ -10,14 +9,16 @@ class Weak<T: AnyObject> {
     }
 }
 
-class AnalyticsLogger: Encodable {
+final class AnalyticsLogger: Encodable {
 
-    // Global Details
+    // MARK: - Global Details
+
     static var integrationVersion: String?
     static var integrationName: String?
 
-    var component: Component
+    // MARK: - Instance Details
 
+    var component: Component
     var instanceId: String
 
     // Includes things like fdata, experience IDs, debug IDs, and the like
@@ -34,11 +35,12 @@ class AnalyticsLogger: Encodable {
     init(_ component: Component) {
         self.instanceId = UUID().uuidString
         self.component = component
-
         AnalyticsService.shared.addLogger(self)
     }
 
     deinit {}
+
+    // MARK: - Encoding
 
     enum StaticKey: String, CodingKey {
         // Integration Details
@@ -47,13 +49,16 @@ class AnalyticsLogger: Encodable {
         case pageType = "page_type"
         case buyerCountryCode = "buyer_country_code"
         case channel = "presentment_channel"
-        // Message Only
+
+        // Message Only (style)
         case styleLogoType = "style_logo_type"
         case styleColor = "style_color"
         case styleTextAlign = "style_text_align"
+
         // Other Details
         case type = "type"
         case instanceId = "instance_id"
+
         // Component Events
         case events = "component_events"
     }
@@ -63,21 +68,29 @@ class AnalyticsLogger: Encodable {
 
         try container.encode(instanceId, forKey: .instanceId)
         try container.encode(events, forKey: .events)
+
+        // Encode dynamic data (relies on your existing AnyCodable dictionary encoding support)
         try dynamicData.encode(to: encoder)
 
         switch component {
         case .message(let weakMessage):
-            guard let message = weakMessage.value else { return }
+            guard let messageView = weakMessage.value else { return }
+
+            // After refactor, PayPalMessageView no longer exposes individual fields.
+            // Use the view's config as the single source of truth.
+            let config = messageView.getConfig()
 
             try container.encode("message", forKey: .type)
-            try container.encodeIfPresent(message.offerType?.rawValue, forKey: .offerType)
-            try container.encodeIfPresent(message.amount?.description, forKey: .amount)
-            try container.encodeIfPresent(message.pageType?.rawValue, forKey: .pageType)
-            try container.encodeIfPresent(message.buyerCountry, forKey: .buyerCountryCode)
-            try container.encodeIfPresent(message.channel, forKey: .channel)
-            try container.encodeIfPresent(message.logoType.rawValue, forKey: .styleLogoType)
-            try container.encodeIfPresent(message.color.rawValue, forKey: .styleColor)
-            try container.encodeIfPresent(message.textAlign.rawValue, forKey: .styleTextAlign)
+
+            try container.encodeIfPresent(config.data.offerType?.rawValue, forKey: .offerType)
+            try container.encodeIfPresent(config.data.amount?.description, forKey: .amount)
+            try container.encodeIfPresent(config.data.pageType?.rawValue, forKey: .pageType)
+            try container.encodeIfPresent(config.data.buyerCountry, forKey: .buyerCountryCode)
+            try container.encodeIfPresent(config.data.channel, forKey: .channel)
+
+            try container.encode(config.style.logoType.rawValue, forKey: .styleLogoType)
+            try container.encode(config.style.color.rawValue, forKey: .styleColor)
+            try container.encode(config.style.textAlign.rawValue, forKey: .styleTextAlign)
 
         case .modal(let weakModal):
             guard let modal = weakModal.value else { return }
@@ -91,8 +104,10 @@ class AnalyticsLogger: Encodable {
         }
     }
 
+    // MARK: - Events
+
     func addEvent(_ event: AnalyticsEvent) {
-        self.events.append(event)
+        events.append(event)
     }
 
     func clearEvents() {
