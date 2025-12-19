@@ -3,74 +3,18 @@ import SwiftUI
 
 public final class PayPalMessageView: UIControl {
 
-    public typealias Proxy<T> = AnyProxy<PayPalMessageView, T>
+    // MARK: - Public delegates
 
-    // MARK: - Properties
+    public weak var stateDelegate: PayPalMessageViewStateDelegate? {
+        didSet { viewModel?.stateDelegate = stateDelegate }
+    }
 
-    /// Delegate property in charge of announcing rendering and fetching events.
-    @Proxy(\.viewModel.stateDelegate)
-    public var stateDelegate: PayPalMessageViewStateDelegate?
+    public weak var eventDelegate: PayPalMessageViewEventDelegate? {
+        didSet { viewModel?.eventDelegate = eventDelegate }
+    }
 
-    /// Delegate property in charge of interaction-related events.
-    @Proxy(\.viewModel.eventDelegate)
-    public var eventDelegate: PayPalMessageViewEventDelegate?
+    // MARK: - Private
 
-    @Proxy(\.viewModel.clientID)
-    public var clientID: String
-
-    @Proxy(\.viewModel.merchantID)
-    public var merchantID: String?
-
-    @Proxy(\.viewModel.partnerAttributionID)
-    public var partnerAttributionID: String?
-
-    @Proxy(\.viewModel.environment)
-    public var environment: Environment
-
-    /// Read-write property that holds the displayed amount in the message.
-    @Proxy(\.viewModel.amount)
-    public var amount: Double?
-
-    /// Read-write property that holds the message pageType.
-    @Proxy(\.viewModel.pageType)
-    public var pageType: PayPalMessagePageType?
-
-    /// Read-write property that holds the message offer type.
-    @Proxy(\.viewModel.offerType)
-    public var offerType: PayPalMessageOfferType?
-
-    /// Read-write property that holds the buyer country.
-    @Proxy(\.viewModel.buyerCountry)
-    public var buyerCountry: String?
-
-    @Proxy(\.viewModel.channel)
-    public var channel: String
-
-    /// Read-write property that holds the message's logo style.
-    @Proxy(\.viewModel.logoType)
-    public var logoType: PayPalMessageLogoType
-
-    /// Read-write property that holds the message's color style.
-    @Proxy(\.viewModel.color)
-    public var color: PayPalMessageColor
-
-    /// Read-write property that holds the message's alignment.
-    @Proxy(\.viewModel.textAlign)
-    public var textAlign: PayPalMessageTextAlign
-
-    /// Read-write property that holds the cache status
-    @Proxy(\.viewModel.ignoreCache)
-    public var ignoreCache: Bool
-
-    /// Private property that holds the message configuration.
-    /// We are using set/get methods for accessing to discourage attempting to edit parts of the config to make changes
-    @Proxy(\.viewModel.config)
-    private var config: PayPalMessageConfig
-
-    @Proxy(\.viewModel.merchantProfileHash)
-    var merchantProfileHash: String?
-
-    // swiftlint:disable:next implicitly_unwrapped_optional
     private var viewModel: PayPalMessageViewModel!
 
     // MARK: - Subviews
@@ -95,16 +39,8 @@ public final class PayPalMessageView: UIControl {
         return view
     }()
 
-    // MARK: - Initializers
+    // MARK: - Init
 
-    /// Initialize a PayPalMessageView instance.
-    /// Receives an optional configuration object and delegates.
-    /// Performs a fetch with the given information before displaying content.
-    ///
-    /// - Parameters:
-    ///   - config: Config object that holds all of the required parameters for the message view.
-    ///   - stateDelegate: Delegate property in charge of announcing rendering and fetching events.
-    ///   - eventDelegate: Delegate property in charge of interaction-related events.
     public convenience init(
         config: PayPalMessageConfig,
         stateDelegate: PayPalMessageViewStateDelegate? = nil,
@@ -114,7 +50,7 @@ public final class PayPalMessageView: UIControl {
             config: config,
             stateDelegate: stateDelegate,
             eventDelegate: eventDelegate,
-            requester: MessageRequest(),
+            requester: MessageRequest.shared,
             merchantProfileProvider: MerchantProfileProvider()
         )
     }
@@ -128,6 +64,12 @@ public final class PayPalMessageView: UIControl {
     ) {
         super.init(frame: .zero)
 
+        self.stateDelegate = stateDelegate
+        self.eventDelegate = eventDelegate
+
+        configViews()
+        configTouchTarget()
+
         viewModel = PayPalMessageViewModel(
             config: config,
             requester: requester,
@@ -137,9 +79,6 @@ public final class PayPalMessageView: UIControl {
             delegate: self,
             messageView: self
         )
-
-        configViews()
-        configTouchTarget()
     }
 
     @available(*, unavailable)
@@ -147,30 +86,21 @@ public final class PayPalMessageView: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {}
+    // MARK: - Config
 
-    // MARK: - Config getters and setters
-    // They are necessary to prevent users from modifying the Config property directly
-
-    /// Sets the config to the desired value.
-    /// Changing its value will cause the message content being refetched *always*.
-    /// When changing several properties, this is the preferred way of doing so, as it won't suffer from updates being locked due to another one being in progress.
-    public func setConfig(_ config: PayPalMessageConfig) {
-        self.config = config
+    /// Applies a new config.
+    /// - Returns: `true` if the view content was updated synchronously (style-only refresh or cache-hit render),
+    ///            `false` if an async fetch is required/in progress.
+    @discardableResult
+    public func setConfig(_ config: PayPalMessageConfig) -> Bool {
+        viewModel.applyConfig(config)
     }
 
-    /// Gets the current config object.
     public func getConfig() -> PayPalMessageConfig {
-        config
+        viewModel.config
     }
 
-    // MARK: - Lifecycle Events and Properties
-
-    override public var isHighlighted: Bool {
-        didSet {
-            configHighlight()
-        }
-    }
+    // MARK: - Layout
 
     override public func awakeFromNib() {
         super.awakeFromNib()
@@ -182,39 +112,13 @@ public final class PayPalMessageView: UIControl {
     }
 
     override public func sizeThatFits(_ size: CGSize) -> CGSize {
-        return messageLabel.sizeThatFits(size)
+        messageLabel.sizeThatFits(size)
     }
 
-    // MARK: - Config Functions
+    // MARK: - Highlight
 
-    private func configViews() {
-        backgroundColor = .clear
-        layer.masksToBounds = true
-
-        containerView.addSubview(messageLabel)
-        addSubview(containerView)
-
-        configConstraints()
-    }
-
-    private func configConstraints() {
-        NSLayoutConstraint.activate([
-            containerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            containerView.topAnchor.constraint(equalTo: topAnchor),
-            containerView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-
-        NSLayoutConstraint.activate([
-            messageLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            messageLabel.topAnchor.constraint(equalTo: containerView.topAnchor),
-            messageLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
-    }
-
-    private func configTouchTarget() {
-        addTarget(self, action: #selector(onTapLearnMore), for: .touchUpInside)
+    override public var isHighlighted: Bool {
+        didSet { configHighlight() }
     }
 
     private func configHighlight() {
@@ -229,6 +133,32 @@ public final class PayPalMessageView: UIControl {
         )
     }
 
+    // MARK: - View setup
+
+    private func configViews() {
+        backgroundColor = .clear
+        layer.masksToBounds = true
+
+        containerView.addSubview(messageLabel)
+        addSubview(containerView)
+
+        NSLayoutConstraint.activate([
+            containerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            containerView.topAnchor.constraint(equalTo: topAnchor),
+            containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            messageLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            messageLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            messageLabel.topAnchor.constraint(equalTo: containerView.topAnchor),
+            messageLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+        ])
+    }
+
+    private func configTouchTarget() {
+        addTarget(self, action: #selector(onTapLearnMore), for: .touchUpInside)
+    }
+
     // MARK: - Actions
 
     @objc private func onTapLearnMore() {
@@ -236,28 +166,27 @@ public final class PayPalMessageView: UIControl {
     }
 }
 
-// MARK: - PayPalMessageViewModelDelegate Methods
+// MARK: - PayPalMessageViewModelDelegate
 
 extension PayPalMessageView: PayPalMessageViewModelDelegate {
 
-    /// Recreates the message content from the existing data. **Does not triggers a networking event.**
     func refreshContent(messageParameters: PayPalMessageViewParameters?) {
         messageLabel.attributedText = PayPalMessageAttributedStringBuilder().makeMessageString(messageParameters)
+
         // Force recalculation for layout
         invalidateIntrinsicContentSize()
 
-        // Update accessibility properties
-        self.accessibilityLabel = messageParameters?.accessibilityLabel ?? ""
-        self.accessibilityTraits = messageParameters?.accessibilityTraits ?? .none
-        self.isAccessibilityElement = messageParameters?.isAccessibilityElement ?? false
+        // Accessibility
+        accessibilityLabel = messageParameters?.accessibilityLabel ?? ""
+        accessibilityTraits = messageParameters?.accessibilityTraits ?? .none
+        isAccessibilityElement = messageParameters?.isAccessibilityElement ?? false
     }
 }
 
-// MARK: - Accessibility Helpers
+// MARK: - Trait changes
 
 extension PayPalMessageView {
 
-    /// Called when the accessibility or orientation traits have changed. Reloads the content accordingly.
     override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         refreshContent(messageParameters: viewModel.messageParameters)
@@ -267,16 +196,14 @@ extension PayPalMessageView {
 // MARK: - Constants
 
 extension PayPalMessageView {
-
     private enum Constants {
         static let highlightedAnimationDuration: CGFloat = 1.0
         static let highlightedAlpha: CGFloat = 0.75
         static let regularAlpha: CGFloat = 1.0
-        static let fontSize: CGFloat = 14.0
     }
 }
 
-// MARK: - SwiftUI Compatibility
+// MARK: - SwiftUI
 
 @available(iOS 13.0, *)
 extension PayPalMessageView {
@@ -298,17 +225,14 @@ extension PayPalMessageView {
         }
 
         public func makeUIView(context: Context) -> PayPalMessageView {
-            PayPalMessageView(
-                config: config,
-                stateDelegate: stateDelegate,
-                eventDelegate: eventDelegate
-            )
+            PayPalMessageView(config: config, stateDelegate: stateDelegate, eventDelegate: eventDelegate)
         }
 
         public func updateUIView(_ view: PayPalMessageView, context: Context) {
             view.stateDelegate = stateDelegate
             view.eventDelegate = eventDelegate
-            view.setConfig(config)
+            _ = view.setConfig(config)
         }
     }
 }
+
