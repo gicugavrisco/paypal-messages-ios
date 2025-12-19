@@ -15,7 +15,8 @@ let package = Package(
             name: "PayPalMessages",
             path: "Sources/PayPalMessages",
             resources: [
-                .process("Assets.xcassets")
+                .process("Assets.xcassets"),
+                .copy("PrivacyInfo.xcprivacy")
             ]
         ),
         .testTarget(
