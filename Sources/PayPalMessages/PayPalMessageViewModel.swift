@@ -90,10 +90,14 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
     /// Apply a new config.
     ///
     /// Returns:
-    /// - true  => UI updated synchronously (style-only refresh OR cache hit rendered immediately)
-    /// - false => async fetch needed / in-progress
+    /// - `.some(.success(()))` / `.some(.failure(..))` => resolved immediately (no stateDelegate callbacks)
+    /// - `nil` => async fetch will happen; stateDelegate receives onLoading/onSuccess/onError
     @discardableResult
-    func applyConfig(_ newConfig: PayPalMessageConfig, forceFetch: Bool = false) -> Bool {
+    func applyConfig(
+        _ newConfig: PayPalMessageConfig,
+        forceFetch: Bool = false
+    ) -> Result<Void, PayPalMessageError>? {
+
         let oldFetchKey = lastFetchKey
         let oldStyleKey = lastStyleKey
 
@@ -119,19 +123,19 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
                 guard let self else { return }
                 self.delegate?.refreshContent(messageParameters: self.messageParameters)
             }
-            return true
+            return .success(())
         }
 
-        // If nothing changed and not forced -> nothing to do.
+        // If nothing changed and not forced -> already satisfied (sync).
         if !fetchChanged, !styleChanged, !forceFetch {
-            return false
+            return .success(())
         }
 
         // If we have no content yet, even style-only must fetch once.
         let mustFetch = forceFetch || fetchChanged || messageResponse == nil
-        guard mustFetch else { return false }
+        guard mustFetch else { return .success(()) }
 
-        // Fetch (cache first).
+        // Fetch (cache first). Returns .success if cache hit, nil if async needed.
         return fetchMessageContent(cacheFirst: true)
     }
 
@@ -159,29 +163,40 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
 
     // MARK: - Fetch
 
-    /// Returns true only if it rendered synchronously from cache.
-    private func fetchMessageContent(cacheFirst: Bool) -> Bool {
+    /// Returns:
+    /// - `.success(())` if content was resolved immediately (cache hit) WITHOUT calling stateDelegate
+    /// - `nil` if async fetch will happen (stateDelegate will be called)
+    private func fetchMessageContent(cacheFirst: Bool) -> Result<Void, PayPalMessageError>? {
         renderStart = Date()
 
-        // If we already know hash, we can compute the exact cache key and do a true sync cache hit.
+        // If viewModel doesn't have a hash yet, try to grab it synchronously from provider cache.
+        if merchantProfileHash == nil {
+            merchantProfileHash = merchantProfileProvider.cachedMerchantProfileHash(
+                environment: config.data.environment,
+                clientID: config.data.clientID,
+                merchantID: config.data.merchantID
+            )
+        }
+
+        // If we know hash, we can compute the exact cache key and do a true sync cache hit.
         if let hash = merchantProfileHash {
             let params = makeRequestParameters(merchantProfileHash: hash)
 
-            if cacheFirst, let cached = (requester as? MessageRequest)?.cachedMessage(parameters: params) {
+            if cacheFirst, let cached = requester.cachedMessage(parameters: params) {
                 onMain { [weak self] in
-                    self?.onMessageRequestReceived(response: cached, requestWasFromCache: true)
+                    guard let self else { return }
+                    self.applyResponseSilently(cached, requestWasFromCache: true)
                 }
-                return true
+                return .success(())
             }
 
             onMain { [weak self] in self?.notifyLoading() }
             fetchFromNetwork(params)
-            return false
+            return nil
         }
 
-        // Otherwise resolve hash (may be sync or async depending on provider impl).
-        onMain { [weak self] in self?.notifyLoading() }
-
+        // Otherwise resolve hash first (async). IMPORTANT:
+        // We do NOT call notifyLoading() until we know it's a cache miss after hash resolution.
         merchantProfileProvider.getMerchantProfileHash(
             environment: config.data.environment,
             clientID: config.data.clientID,
@@ -192,17 +207,18 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             self.merchantProfileHash = hash
             let params = self.makeRequestParameters(merchantProfileHash: hash)
 
-            if cacheFirst, let cached = (self.requester as? MessageRequest)?.cachedMessage(parameters: params) {
+            if cacheFirst, let cached = self.requester.cachedMessage(parameters: params) {
                 self.onMain {
-                    self.onMessageRequestReceived(response: cached, requestWasFromCache: true)
+                    self.applyResponseSilently(cached, requestWasFromCache: true)
                 }
                 return
             }
 
+            self.onMain { self.notifyLoading() }
             self.fetchFromNetwork(params)
         }
 
-        return false
+        return nil
     }
 
     private func fetchFromNetwork(_ params: MessageRequestParameters) {
@@ -225,7 +241,33 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         stateDelegate.onLoading(messageView)
     }
 
-    // MARK: - Response handling
+    // MARK: - Sync application (no stateDelegate callbacks)
+
+    private func applyResponseSilently(_ response: MessageResponse, requestWasFromCache: Bool) {
+        messageResponse = response
+        logger.dynamicData = response.trackingData
+
+        isMessageViewInteractive = true
+
+        // Update UI
+        delegate?.refreshContent(messageParameters: messageParameters)
+
+        // Keep modal in sync
+        if let modal {
+            modal.merchantProfileHash = merchantProfileHash
+            modal.setConfig(makeModalConfig())
+        }
+
+        // Internal analytics is OK; we’re only suppressing external stateDelegate callbacks.
+        logger.addEvent(.messageRender(
+            renderDuration: Int((renderStart?.timeIntervalSinceNow ?? 1 / 1000) * -1000),
+            requestDuration: requestWasFromCache ? 0 : Int((messageResponse?.requestDuration ?? 1 / 1000) * -1000)
+        ))
+
+        log(.debug, "applyResponseSilently: \(String(describing: response.defaultMainContent))", for: config.data.environment)
+    }
+
+    // MARK: - Response handling (async path only)
 
     private func onMessageRequestFailed(error: PayPalMessageError) {
         messageResponse = nil
@@ -389,3 +431,4 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         }
     }
 }
+

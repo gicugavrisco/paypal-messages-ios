@@ -89,10 +89,12 @@ public final class PayPalMessageView: UIControl {
     // MARK: - Config
 
     /// Applies a new config.
-    /// - Returns: `true` if the view content was updated synchronously (style-only refresh or cache-hit render),
-    ///            `false` if an async fetch is required/in progress.
+    ///
+    /// Returns:
+    /// - `.some(.success(()))` / `.some(.failure(..))` => resolved immediately (no stateDelegate callbacks)
+    /// - `nil` => async fetch will happen; stateDelegate receives onLoading/onSuccess/onError
     @discardableResult
-    public func setConfig(_ config: PayPalMessageConfig) -> Bool {
+    public func setConfig(_ config: PayPalMessageConfig) -> Result<Void, PayPalMessageError>? {
         viewModel.applyConfig(config)
     }
 
