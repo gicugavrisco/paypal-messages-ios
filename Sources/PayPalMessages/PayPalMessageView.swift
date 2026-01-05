@@ -51,7 +51,7 @@ public final class PayPalMessageView: UIControl {
             stateDelegate: stateDelegate,
             eventDelegate: eventDelegate,
             requester: MessageRequest.shared,
-            merchantProfileProvider: MerchantProfileProvider()
+            merchantProfileProvider: MerchantProfileProvider.shared
         )
     }
 
@@ -89,12 +89,7 @@ public final class PayPalMessageView: UIControl {
     // MARK: - Config
 
     /// Applies a new config.
-    ///
-    /// Returns:
-    /// - `.some(.success(()))` / `.some(.failure(..))` => resolved immediately (no stateDelegate callbacks)
-    /// - `nil` => async fetch will happen; stateDelegate receives onLoading/onSuccess/onError
-    @discardableResult
-    public func setConfig(_ config: PayPalMessageConfig) -> Result<Void, PayPalMessageError>? {
+    public func setConfig(_ config: PayPalMessageConfig) {
         viewModel.applyConfig(config)
     }
 

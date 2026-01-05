@@ -46,7 +46,6 @@
 		C635F4E02A964A020096F9FF /* Fetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B22A964A020096F9FF /* Fetch.swift */; };
 		C635F4E12A964A020096F9FF /* UIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B42A964A020096F9FF /* UIView.swift */; };
 		C635F4E22A964A020096F9FF /* UIColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B52A964A020096F9FF /* UIColor.swift */; };
-		C635F4E42A964A020096F9FF /* UserDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B72A964A020096F9FF /* UserDefaults.swift */; };
 		C635F4E52A964A020096F9FF /* UIViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B82A964A020096F9FF /* UIViewController.swift */; };
 		C635F4E62A964A020096F9FF /* HTTPURLResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4B92A964A020096F9FF /* HTTPURLResponse.swift */; };
 		C635F4E72A964A020096F9FF /* CGFloat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C635F4BA2A964A020096F9FF /* CGFloat.swift */; };
@@ -128,7 +127,6 @@
 		C635F4B22A964A020096F9FF /* Fetch.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Fetch.swift; sourceTree = "<group>"; };
 		C635F4B42A964A020096F9FF /* UIView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UIView.swift; sourceTree = "<group>"; };
 		C635F4B52A964A020096F9FF /* UIColor.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UIColor.swift; sourceTree = "<group>"; };
-		C635F4B72A964A020096F9FF /* UserDefaults.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UserDefaults.swift; sourceTree = "<group>"; };
 		C635F4B82A964A020096F9FF /* UIViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UIViewController.swift; sourceTree = "<group>"; };
 		C635F4B92A964A020096F9FF /* HTTPURLResponse.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HTTPURLResponse.swift; sourceTree = "<group>"; };
 		C635F4BA2A964A020096F9FF /* CGFloat.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CGFloat.swift; sourceTree = "<group>"; };
@@ -301,7 +299,6 @@
 			children = (
 				C635F4B42A964A020096F9FF /* UIView.swift */,
 				C635F4B52A964A020096F9FF /* UIColor.swift */,
-				C635F4B72A964A020096F9FF /* UserDefaults.swift */,
 				C635F4B82A964A020096F9FF /* UIViewController.swift */,
 				C635F4B92A964A020096F9FF /* HTTPURLResponse.swift */,
 				C635F4BA2A964A020096F9FF /* CGFloat.swift */,
@@ -513,7 +510,6 @@
 				C635F4CD2A964A020096F9FF /* Environment.swift in Sources */,
 				C635F4D42A964A020096F9FF /* PayPalMessageLogoType.swift in Sources */,
 				C635F4DE2A964A020096F9FF /* PayPalMessageAttributedStringBuilder.swift in Sources */,
-				C635F4E42A964A020096F9FF /* UserDefaults.swift in Sources */,
 				C635F4C42A964A020096F9FF /* AnalyticsService.swift in Sources */,
 				C635F4C62A964A020096F9FF /* AnyCodable.swift in Sources */,
 				C635F4D02A964A020096F9FF /* PayPalMessagePageType.swift in Sources */,
