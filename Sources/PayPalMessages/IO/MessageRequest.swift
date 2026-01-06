@@ -186,11 +186,16 @@ final class MessageRequest: MessageRequestable {
             "integration_type": BuildInfo.integrationType,
             "integration_version": AnalyticsLogger.integrationVersion,
             "integration_name": AnalyticsLogger.integrationName
-        ].filter {
-            guard let value = $0.value else { return false }
-            return !value.isEmpty && value.lowercased() != "false"
-        }
+        ]
 
-        return parameters.environment.url(.message, queryParams)?.absoluteString
+        let parts = queryParams
+            .compactMap { key, value -> String? in
+                guard let value, !value.isEmpty, value.lowercased() != "false" else { return nil }
+                return "\(key)=\(value)"
+            }
+            .sorted()
+            .joined(separator: "&")
+
+        return "\(parameters.environment)|\(parts)"
     }
 }
