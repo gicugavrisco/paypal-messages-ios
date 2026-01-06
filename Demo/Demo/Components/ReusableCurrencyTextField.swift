@@ -2,31 +2,28 @@ import SwiftUI
 
 struct ReusableCurrencyTextField: View {
 
-    @Binding var value: Double?
+    @Binding var value: String?
     @State private var stringValue: String = ""
 
-    init(value: Binding<Double?>) {
+    init(value: Binding<String?>) {
         _value = value
-        _stringValue = State(initialValue: value.wrappedValue?.description ?? "")
+        _stringValue = State(initialValue: value.wrappedValue ?? "")
     }
 
     var body: some View {
-        let stringBinding = Binding(
+        let stringBinding = Binding<String>(
             get: { stringValue },
             set: { newValue in
                 stringValue = newValue
-                value = Double(newValue)
+                value = newValue.isEmpty ? nil : newValue
             }
         )
+
         return TextField("", text: stringBinding)
             .modifier(ReusableTextFieldModifier(binding: stringBinding))
             .truncationMode(.tail)
             .onChange(of: value) { newValue in
-                if let newValue {
-                    stringValue = newValue.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(newValue)) : newValue.description
-                } else {
-                    stringValue = "" // Clear the text field when value is set to nil
-                }
+                stringValue = newValue ?? ""
             }
     }
 }

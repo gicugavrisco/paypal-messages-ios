@@ -10,7 +10,7 @@ struct MessageRequestParameters {
     let logoType: PayPalMessageLogoType
     let buyerCountry: String?
     let pageType: PayPalMessagePageType?
-    let amount: Double?
+    let amount: String?
     let offerType: PayPalMessageOfferType?
     let merchantProfileHash: String?
     let ignoreCache: Bool
@@ -154,7 +154,7 @@ final class MessageRequest: MessageRequestable {
             "logo_type": parameters.logoType.rawValue,
             "buyer_country": parameters.buyerCountry,
             "page_type": parameters.pageType?.rawValue,
-            "amount": parameters.amount?.description,
+            "amount": parameters.amount,
             "offer": parameters.offerType?.rawValue,
             "merchant_config": parameters.merchantProfileHash,
             "ignore_cache": parameters.ignoreCache.description,
@@ -180,7 +180,7 @@ final class MessageRequest: MessageRequestable {
             "logo_type": parameters.logoType.rawValue,
             "buyer_country": parameters.buyerCountry,
             "page_type": parameters.pageType?.rawValue,
-            "amount": parameters.amount?.description,
+            "amount": parameters.amount,
             "offer": parameters.offerType?.rawValue,
             "version": BuildInfo.version,
             "integration_type": BuildInfo.integrationType,

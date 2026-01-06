@@ -11,7 +11,7 @@ public class PayPalMessageData: NSObject {
     /// PayPal execution environment
     public var environment: Environment
     /// Price expressed in cents amount based on the current context (i.e. individual product price vs total cart price)
-    public var amount: Double?
+    public var amount: String?
     /// Message screen location (e.g. product, cart, home)
     public var pageType: PayPalMessagePageType?
     /// Preferred message offer to display
@@ -27,7 +27,7 @@ public class PayPalMessageData: NSObject {
     public init(
         clientID: String,
         environment: Environment,
-        amount: Double? = nil,
+        amount: String? = nil,
         pageType: PayPalMessagePageType? = nil,
         offerType: PayPalMessageOfferType? = nil,
         channel: String = BuildInfo.channel
@@ -46,7 +46,7 @@ public class PayPalMessageData: NSObject {
         merchantID: String,
         environment: Environment,
         partnerAttributionID: String,
-        amount: Double? = nil,
+        amount: String? = nil,
         pageType: PayPalMessagePageType? = nil,
         offerType: PayPalMessageOfferType? = nil,
         channel: String = BuildInfo.channel

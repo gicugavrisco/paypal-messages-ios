@@ -12,7 +12,7 @@ struct SwiftUIContentView: View {
     @State private var textAlign: PayPalMessageTextAlign = defaultMessageConfig.style.textAlign
 
     @State private var clientID: String = defaultMessageConfig.data.clientID
-    @State private var amount: Double? = defaultMessageConfig.data.amount
+    @State private var amount: String? = defaultMessageConfig.data.amount
     @State private var pageType: PayPalMessagePageType? = defaultMessageConfig.data.pageType
     @State private var offerType: PayPalMessageOfferType? = defaultMessageConfig.data.offerType
     @State private var buyerCountry: String = defaultMessageConfig.data.buyerCountry ?? ""

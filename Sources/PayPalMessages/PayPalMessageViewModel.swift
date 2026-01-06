@@ -265,11 +265,19 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             alternativeText: messageResponse?.modalCloseButtonAlternativeText
         )
 
+        let amount: Double? = {
+            if let amount = config.data.amount {
+                return Double(amount)
+            } else {
+                return nil
+            }
+        }()
+
         let modalConfig = PayPalMessageModalConfig(
             data: .init(
                 clientID: config.data.clientID,
                 environment: config.data.environment,
-                amount: config.data.amount,
+                amount: amount,
                 pageType: config.data.pageType,
                 offerType: offerType,
                 modalCloseButton: modalCloseButton
@@ -304,7 +312,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         let clientID: String
         let merchantID: String?
         let partnerAttributionID: String?
-        let amount: Double?
+        let amount: String?
         let pageType: PayPalMessagePageType?
         let offerType: PayPalMessageOfferType?
         let buyerCountry: String?

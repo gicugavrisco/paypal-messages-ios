@@ -264,8 +264,8 @@ class UIKitContentViewController: UIViewController {
         return PayPalMessageOfferType.allCases[offerTypePicker.selectedSegmentIndex]
     }
 
-    private func getCurrentAmount() -> Double? {
-        Double(amountTextField.text ?? "")
+    private func getCurrentAmount() -> String? {
+        amountTextField.text
     }
 
     private func getCurrentBuyerCountry() -> String? {
