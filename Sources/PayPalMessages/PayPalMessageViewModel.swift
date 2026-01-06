@@ -151,6 +151,8 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
     private func fetchMessageContent() {
         renderStart = Date()
 
+        let fetchKeySnapshot = lastFetchKey
+
         if let stateDelegate, let messageView {
             stateDelegate.onLoading(messageView)
         }
@@ -160,7 +162,10 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             clientID: config.data.clientID,
             merchantID: config.data.merchantID,
             onCompletion: { [weak self] hash in
-                guard let self else { return }
+                guard
+                    let self,
+                    self.lastFetchKey == fetchKeySnapshot
+                else { return }
 
                 self.merchantProfileHash = hash
 

@@ -41,8 +41,11 @@ final class MerchantProfileProvider: MerchantProfileHashGetable {
                 }
 
                 onCompletion(value.disabled ? nil : value.hash)
+                return
+
             } else {
                 onCompletion(nil)
+                return
             }
         }
 
@@ -50,6 +53,7 @@ final class MerchantProfileProvider: MerchantProfileHashGetable {
         if inFlightCompletions[cacheKey] != nil {
             inFlightCompletions[cacheKey]?.append(onCompletion)
             return
+
         } else {
             inFlightCompletions[cacheKey] = [onCompletion]
         }
