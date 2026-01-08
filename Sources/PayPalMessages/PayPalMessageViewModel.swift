@@ -193,21 +193,17 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             errorDescription: error.description ?? ""
         ))
 
+        isMessageViewInteractive = false
+        delegate?.refreshContent(messageParameters: messageParameters)
+
         if let stateDelegate, let messageView {
             stateDelegate.onError(messageView, error: error)
         }
-
-        isMessageViewInteractive = false
-        delegate?.refreshContent(messageParameters: messageParameters)
     }
 
     private func onMessageRequestReceived(response: MessageResponse) {
         messageResponse = response
         logger.dynamicData = response.trackingData
-
-        if let stateDelegate, let messageView {
-            stateDelegate.onSuccess(messageView)
-        }
 
         delegate?.refreshContent(messageParameters: messageParameters)
 
@@ -221,6 +217,10 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         if let modal {
             modal.merchantProfileHash = merchantProfileHash
             modal.setConfig(makeModalConfig())
+        }
+
+        if let stateDelegate, let messageView {
+            stateDelegate.onSuccess(messageView)
         }
 
         log(.debug, "onMessageRequestReceived: \(String(describing: response.defaultMainContent))", for: config.data.environment)
