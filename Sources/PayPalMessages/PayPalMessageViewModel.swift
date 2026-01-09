@@ -29,8 +29,8 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
     private var renderStart: Date?
 
     // Keys to decide whether we need fetch vs UI-only refresh
-    private var lastFetchKey: FetchKey
-    private var lastStyleKey: StyleKey
+    private var lastFetchKey: FetchKey?
+    private var lastStyleKey: StyleKey?
 
     // MARK: - Dependencies
 
@@ -75,11 +75,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         self.eventDelegate = eventDelegate
         self.delegate = delegate
         self.messageView = messageView
-
         self.logger = AnalyticsLogger(.message(Weak(messageView)))
-
-        self.lastFetchKey = FetchKey(config: config)
-        self.lastStyleKey = StyleKey(config: config)
 
         // Initial load.
         applyConfig(config)
@@ -105,7 +101,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         lastStyleKey = newStyleKey
 
         // If identity changed (env/client/merchant), previous hash becomes invalid.
-        if newFetchKey.identityChanged(vs: oldFetchKey) {
+        if let oldFetchKey, newFetchKey.identityChanged(vs: oldFetchKey) {
             merchantProfileHash = nil
         }
 
