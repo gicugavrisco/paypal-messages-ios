@@ -2,7 +2,7 @@ import Foundation
 
 public final class MessagePrefetch {
 
-    static let shared = MessagePrefetch(
+    public static let shared = MessagePrefetch(
         requester: MessageRequest.shared,
         merchantProfileProvider: MerchantProfileProvider.shared
     )
