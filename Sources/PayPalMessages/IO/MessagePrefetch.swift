@@ -4,7 +4,8 @@ public final class MessagePrefetch {
 
     static let shared = MessagePrefetch(
         requester: MessageRequest.shared,
-        merchantProfileProvider: MerchantProfileProvider.shared)
+        merchantProfileProvider: MerchantProfileProvider.shared
+    )
 
     private let requester: MessageRequestable
     private let merchantProfileProvider: MerchantProfileHashGetable
@@ -17,18 +18,22 @@ public final class MessagePrefetch {
         self.merchantProfileProvider = merchantProfileProvider
     }
 
+    /// Results are aligned by index with the input `configs`.
+    /// `results.count == configs.count`
     public func prefetch(
         configs: [PayPalMessageConfig],
-        completion: @escaping () -> Void
+        completion: @escaping ([Result<Void, Error>]) -> Void
     ) {
         guard !configs.isEmpty else {
-            completion()
+            completion([])
             return
         }
 
+        // Index-aligned results
+        var results = Array<Result<Void, Error>?>(repeating: nil, count: configs.count)
         let group = DispatchGroup()
 
-        for config in configs {
+        for (index, config) in configs.enumerated() {
             group.enter()
 
             merchantProfileProvider.getMerchantProfileHash(
@@ -38,7 +43,10 @@ public final class MessagePrefetch {
             ) { [weak self] hash in
 
                 guard let self else {
-                    group.leave()
+                    DispatchQueue.main.async {
+                        results[index] = .failure(PrefetchError.deallocated)
+                        group.leave()
+                    }
                     return
                 }
 
@@ -57,14 +65,31 @@ public final class MessagePrefetch {
                     instanceID: "prefetch"
                 )
 
-                self.requester.fetchMessage(parameters: params) { _ in
-                    group.leave()
+                self.requester.fetchMessage(parameters: params) { fetchResult in
+                    // Preserve PayPalMessageError as Error
+                    let mapped: Result<Void, Error> = fetchResult
+                        .map { _ in () }
+                        .mapError { $0 as Error }
+
+                    DispatchQueue.main.async {
+                        results[index] = mapped
+                        group.leave()
+                    }
                 }
             }
         }
 
         group.notify(queue: .main) {
-            completion()
+            // Defensive fallback: any missing entry becomes an error
+            let finalized = results.map { $0 ?? .failure(PrefetchError.incomplete) }
+            completion(finalized)
         }
+    }
+}
+
+private extension MessagePrefetch {
+    enum PrefetchError: Error {
+        case deallocated
+        case incomplete
     }
 }
