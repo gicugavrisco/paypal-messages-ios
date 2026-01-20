@@ -16,7 +16,7 @@ class UIKitContentViewController: UIViewController {
     }()
 
     lazy var paypalMessage: PayPalMessageView = {
-        PayPalMessageView(config: defaultMessageConfig, stateDelegate: self, eventDelegate: self)
+        PayPalMessageView(source: defaultMessageSource, stateDelegate: self, eventDelegate: self)
     }()
 
     lazy var messageConfigHeaderLabel = getLabel(text: "Message Configuration", font: UIFont.systemFont(ofSize: 20, weight: .semibold))
@@ -66,7 +66,7 @@ class UIKitContentViewController: UIViewController {
     )
 
     lazy var ignoreCacheSwitch: UISwitch = getSwitch(
-        isOn: defaultMessageConfig.data.ignoreCache,
+        isOn: defaultMessageSource.config.data.ignoreCache,
         action: #selector(updatePayPalMessageMessage)
     )
 
@@ -74,7 +74,7 @@ class UIKitContentViewController: UIViewController {
         action: #selector(updatePayPalMessageMessage),
         keyboardType: .default,
         autoCapitalizationType: .none,
-        text: defaultMessageConfig.data.clientID
+        text: defaultMessageSource.config.data.clientID
     )
 
     lazy var statusTextView: UITextView = {
@@ -171,28 +171,28 @@ class UIKitContentViewController: UIViewController {
     }
 
     private func loadDefaultSelections() {
-        loadSegmentedIndex(item: defaultMessageConfig.style.logoType, picker: logoTypePicker)
-        loadSegmentedIndex(item: defaultMessageConfig.style.color, picker: colorTypePicker)
-        loadSegmentedIndex(item: defaultMessageConfig.style.textAlign, picker: alignmentTypePicker)
-        buyerCountryField.text = defaultMessageConfig.data.buyerCountry
-        ignoreCacheSwitch.isOn = defaultMessageConfig.data.ignoreCache
+        loadSegmentedIndex(item: defaultMessageSource.config.style.logoType, picker: logoTypePicker)
+        loadSegmentedIndex(item: defaultMessageSource.config.style.color, picker: colorTypePicker)
+        loadSegmentedIndex(item: defaultMessageSource.config.style.textAlign, picker: alignmentTypePicker)
+        buyerCountryField.text = defaultMessageSource.config.data.buyerCountry
+        ignoreCacheSwitch.isOn = defaultMessageSource.config.data.ignoreCache
 
-        if let amount = defaultMessageConfig.data.amount {
+        if let amount = defaultMessageSource.config.data.amount {
             amountTextField.text = String(format: "%f", amount)
         } else {
             amountTextField.text = nil
         }
 
-        if let offerType = defaultMessageConfig.data.offerType,
+        if let offerType = defaultMessageSource.config.data.offerType,
            let offerIndex = PayPalMessageOfferType.allCases.firstIndex(of: offerType) {
             offerTypePicker.selectedSegmentIndex = offerIndex
         } else {
             offerTypePicker.selectedSegmentIndex = UISegmentedControl.noSegment
         }
 
-        paypalMessage.backgroundColor = defaultMessageConfig.style.color == .white ? .black : .clear
+        paypalMessage.backgroundColor = defaultMessageSource.config.style.color == .white ? .black : .clear
 
-        clientIDField.text = defaultMessageConfig.data.clientID
+        clientIDField.text = defaultMessageSource.config.data.clientID
     }
 
     private func loadSegmentedIndex<T: PayPalMessageEnumType>(item: T, picker: UISegmentedControl) {
@@ -220,7 +220,7 @@ class UIKitContentViewController: UIViewController {
     }
 
     @objc private func resetConfig(_ sender: UIView) {
-        paypalMessage.setConfig(defaultMessageConfig)
+        paypalMessage.setConfig(defaultMessageSource.config)
         loadDefaultSelections()
     }
 
@@ -228,8 +228,8 @@ class UIKitContentViewController: UIViewController {
     private func getCurrentConfig() -> PayPalMessageConfig {
         let config = PayPalMessageConfig(
             data: .init(
-                clientID: getCurrentClientID() ?? defaultMessageConfig.data.clientID,
-                environment: defaultMessageConfig.data.environment,
+                clientID: getCurrentClientID() ?? defaultMessageSource.config.data.clientID,
+                environment: defaultMessageSource.config.data.environment,
                 amount: getCurrentAmount(),
                 offerType: getCurrentOfferType()
             ),

@@ -7,30 +7,30 @@ struct SwiftUIContentView: View {
     // MARK: Properties
     // Defines the @State variables for managing the input control values
 
-    @State private var logoType: PayPalMessageLogoType = defaultMessageConfig.style.logoType
-    @State private var messageColor: PayPalMessageColor = defaultMessageConfig.style.color
-    @State private var textAlign: PayPalMessageTextAlign = defaultMessageConfig.style.textAlign
+    @State private var logoType: PayPalMessageLogoType = defaultMessageSource.config.style.logoType
+    @State private var messageColor: PayPalMessageColor = defaultMessageSource.config.style.color
+    @State private var textAlign: PayPalMessageTextAlign = defaultMessageSource.config.style.textAlign
 
-    @State private var clientID: String = defaultMessageConfig.data.clientID
-    @State private var amount: String? = defaultMessageConfig.data.amount
-    @State private var pageType: PayPalMessagePageType? = defaultMessageConfig.data.pageType
-    @State private var offerType: PayPalMessageOfferType? = defaultMessageConfig.data.offerType
-    @State private var buyerCountry: String = defaultMessageConfig.data.buyerCountry ?? ""
-    @State private var ignoreCache: Bool = defaultMessageConfig.data.ignoreCache
+    @State private var clientID: String = defaultMessageSource.config.data.clientID
+    @State private var amount: String? = defaultMessageSource.config.data.amount
+    @State private var pageType: PayPalMessagePageType? = defaultMessageSource.config.data.pageType
+    @State private var offerType: PayPalMessageOfferType? = defaultMessageSource.config.data.offerType
+    @State private var buyerCountry: String = defaultMessageSource.config.data.buyerCountry ?? ""
+    @State private var ignoreCache: Bool = defaultMessageSource.config.data.ignoreCache
 
     @State private var messageState: String = ""
     @State private var debounceTimerInterval: TimeInterval = 1
     @State private var debounceTimer: Timer?
-    @State private var backgroundColor: Color = defaultMessageConfig.style.color == .white ? .black : .clear
+    @State private var backgroundColor: Color = defaultMessageSource.config.style.color == .white ? .black : .clear
 
     // MARK: Initialization
-    @State private var messageConfig = defaultMessageConfig
+    @State private var messageSource = defaultMessageSource
 
-    private func getCurrentConfig() -> PayPalMessageConfig {
+    private func getCurrentSource() -> PayPalMessageSource {
         let messageConfig: PayPalMessageConfig = .init(
             data: .init(
                 clientID: clientID,
-                environment: defaultMessageConfig.data.environment,
+                environment: defaultMessageSource.config.data.environment,
                 amount: amount,
                 pageType: pageType,
                 offerType: offerType
@@ -47,7 +47,7 @@ struct SwiftUIContentView: View {
         }
         messageConfig.data.ignoreCache = ignoreCache
 
-        return messageConfig
+        return .config(messageConfig)
     }
 
     // MARK: Debouncer
@@ -55,7 +55,7 @@ struct SwiftUIContentView: View {
         debounceTimer?.invalidate()
         debounceTimer = Timer.scheduledTimer(withTimeInterval: debounceTimerInterval, repeats: false) { _ in
 
-            messageConfig = getCurrentConfig()
+            messageSource = getCurrentSource()
 
             if messageColor == .white {
                 backgroundColor = .black
@@ -163,7 +163,7 @@ struct SwiftUIContentView: View {
 
             // MARK: PayPal Message
 
-            PayPalMessageView.Representable(config: messageConfig, stateDelegate: messageStateDelegate, eventDelegate: messageEventDelegate)
+            PayPalMessageView.Representable(source: messageSource, stateDelegate: messageStateDelegate, eventDelegate: messageEventDelegate)
                 .background(backgroundColor)
 
             HStack {
@@ -187,8 +187,8 @@ struct SwiftUIContentView: View {
 
     // MARK: - Load Defaults
     private func loadDefaultSelections() {
-        let defaultData = defaultMessageConfig.data
-        let defaultStyle = defaultMessageConfig.style
+        let defaultData = defaultMessageSource.config.data
+        let defaultStyle = defaultMessageSource.config.style
 
         logoType = defaultStyle.logoType
         messageColor = defaultStyle.color

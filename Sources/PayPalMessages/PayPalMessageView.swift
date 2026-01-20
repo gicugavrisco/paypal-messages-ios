@@ -42,12 +42,12 @@ public final class PayPalMessageView: UIControl {
     // MARK: - Init
 
     public convenience init(
-        config: PayPalMessageConfig,
+        source: PayPalMessageSource,
         stateDelegate: PayPalMessageViewStateDelegate? = nil,
         eventDelegate: PayPalMessageViewEventDelegate? = nil
     ) {
         self.init(
-            config: config,
+            source: source,
             stateDelegate: stateDelegate,
             eventDelegate: eventDelegate,
             requester: MessageRequest.shared,
@@ -56,7 +56,7 @@ public final class PayPalMessageView: UIControl {
     }
 
     internal init(
-        config: PayPalMessageConfig,
+        source: PayPalMessageSource,
         stateDelegate: PayPalMessageViewStateDelegate? = nil,
         eventDelegate: PayPalMessageViewEventDelegate? = nil,
         requester: MessageRequestable,
@@ -71,7 +71,7 @@ public final class PayPalMessageView: UIControl {
         configTouchTarget()
 
         viewModel = PayPalMessageViewModel(
-            config: config,
+            source: source,
             requester: requester,
             merchantProfileProvider: merchantProfileProvider,
             stateDelegate: stateDelegate,
@@ -93,8 +93,13 @@ public final class PayPalMessageView: UIControl {
         viewModel.applyConfig(config)
     }
 
+    /// Applies an already fetched config.
+    public func setResponse(_ response: PayPalMessageResponse, config: PayPalMessageConfig) {
+        viewModel.applyResponse(response, config: config)
+    }
+
     public func getConfig() -> PayPalMessageConfig {
-        viewModel.config
+        viewModel.getConfig()
     }
 
     // MARK: - Layout
@@ -207,28 +212,35 @@ extension PayPalMessageView {
 
     public struct Representable: UIViewRepresentable {
 
-        private let config: PayPalMessageConfig
+        private let source: PayPalMessageSource
         private let stateDelegate: PayPalMessageViewStateDelegate?
         private let eventDelegate: PayPalMessageViewEventDelegate?
 
         public init(
-            config: PayPalMessageConfig,
+            source: PayPalMessageSource,
             stateDelegate: PayPalMessageViewStateDelegate? = nil,
             eventDelegate: PayPalMessageViewEventDelegate? = nil
         ) {
-            self.config = config
+            self.source = source
             self.stateDelegate = stateDelegate
             self.eventDelegate = eventDelegate
         }
 
         public func makeUIView(context: Context) -> PayPalMessageView {
-            PayPalMessageView(config: config, stateDelegate: stateDelegate, eventDelegate: eventDelegate)
+            PayPalMessageView(source: source, stateDelegate: stateDelegate, eventDelegate: eventDelegate)
         }
 
         public func updateUIView(_ view: PayPalMessageView, context: Context) {
             view.stateDelegate = stateDelegate
             view.eventDelegate = eventDelegate
-            _ = view.setConfig(config)
+
+            switch source {
+            case let .config(config):
+                view.setConfig(config)
+
+            case let .response(response, config):
+                view.setResponse(response, config: config)
+            }
         }
     }
 }

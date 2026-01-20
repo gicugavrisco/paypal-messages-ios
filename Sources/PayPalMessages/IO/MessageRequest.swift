@@ -1,6 +1,6 @@
 import Foundation
 
-typealias MessageRequestCompletion = (Result<MessageResponse, PayPalMessageError>) -> Void
+typealias MessageRequestCompletion = (Result<PayPalMessageResponse, PayPalMessageError>) -> Void
 
 struct MessageRequestParameters {
     let environment: Environment
@@ -40,7 +40,7 @@ final class MessageRequest: MessageRequestable {
     ]
 
     /// Cache key -> last result (success OR failure)
-    private var cachedResults: [String: Result<MessageResponse, PayPalMessageError>] = [:]
+    private var cachedResults: [String: Result<PayPalMessageResponse, PayPalMessageError>] = [:]
 
     /// Cache key -> completions waiting for the same request
     private var inFlightCompletions: [String: [MessageRequestCompletion]] = [:]
@@ -91,7 +91,7 @@ final class MessageRequest: MessageRequestable {
         fetch(url, headers: headers, session: parameters.environment.urlSession) { [weak self] data, response, _ in
             guard let self else { return }
 
-            let result: Result<MessageResponse, PayPalMessageError> = self.decodeResult(
+            let result: Result<PayPalMessageResponse, PayPalMessageError> = self.decodeResult(
                 data: data,
                 response: response
             )
@@ -118,14 +118,14 @@ final class MessageRequest: MessageRequestable {
     private func decodeResult(
         data: Data?,
         response: URLResponse?
-    ) -> Result<MessageResponse, PayPalMessageError> {
+    ) -> Result<PayPalMessageResponse, PayPalMessageError> {
         guard let http = response as? HTTPURLResponse else {
             return .failure(.invalidResponse())
         }
 
         switch http.statusCode {
         case 200:
-            guard let data, let messageResponse = try? JSONDecoder().decode(MessageResponse.self, from: data) else {
+            guard let data, let messageResponse = try? JSONDecoder().decode(PayPalMessageResponse.self, from: data) else {
                 return .failure(.invalidResponse(paypalDebugID: http.paypalDebugID))
             }
             return .success(messageResponse)

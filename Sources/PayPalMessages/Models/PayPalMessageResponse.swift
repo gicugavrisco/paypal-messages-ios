@@ -1,6 +1,6 @@
 import Foundation
 
-struct MessageResponse: Decodable {
+public struct PayPalMessageResponse: Decodable {
 
     // MARK: - Attributes
 
@@ -70,7 +70,7 @@ struct MessageResponse: Decodable {
     }
 
     // swiftlint:disable:next function_body_length
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let contentContainer = try container.nestedContainer(

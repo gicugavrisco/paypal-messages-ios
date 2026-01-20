@@ -1,66 +1,88 @@
 import UIKit
 
 protocol PayPalMessageViewModelDelegate: AnyObject {
-    /// Requests the delegate to perform a content refresh.
     func refreshContent(messageParameters: PayPalMessageViewParameters?)
 }
 
-/// Simplified ViewModel:
-/// - One stored config
-/// - No proxy properties, no debounce timer
-/// - Style-only changes refresh UI without refetch (if we already have a response)
-/// - Data changes refetch (cache + dedup should live in MessageRequest.shared)
 final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
-
-    // MARK: - External hooks
 
     weak var delegate: PayPalMessageViewModelDelegate?
     weak var stateDelegate: PayPalMessageViewStateDelegate?
     weak var eventDelegate: PayPalMessageViewEventDelegate?
     weak var messageView: PayPalMessageView?
 
-    // MARK: - State
+    private var source: PayPalMessageSource
+    private var fetchedResponse: PayPalMessageResponse?
 
-    private(set) var config: PayPalMessageConfig
-    private var messageResponse: MessageResponse?
+    private var messageResponse: PayPalMessageResponse? {
+        switch source {
+        case let .config(config):
+            return fetchedResponse
+
+        case let .response(response, _):
+            return response
+
+        default:
+            return nil
+        }
+    }
+
+    private var config: PayPalMessageConfig {
+        switch source {
+        case let .config(config):
+            return config
+
+        case let .response(_, config):
+            return config
+        }
+    }
+
     private var merchantProfileHash: String?
     private var isMessageViewInteractive = false
     private var modal: PayPalMessageModal?
     private var renderStart: Date?
-
-    // Keys to decide whether we need fetch vs UI-only refresh
-    private var lastFetchKey: FetchKey?
-    private var lastStyleKey: StyleKey?
-
-    // MARK: - Dependencies
 
     private let requester: MessageRequestable
     private let merchantProfileProvider: MerchantProfileHashGetable
     private let parameterBuilder = PayPalMessageViewParametersBuilder()
     private let logger: AnalyticsLogger
 
-    // MARK: - Derived
-
     var messageParameters: PayPalMessageViewParameters? {
-        guard let response = messageResponse else { return nil }
 
-        return parameterBuilder.makeParameters(
-            message: response.defaultMainContent,
-            messageAlternative: response.defaultMainAlternative,
-            offerType: response.offerType,
-            linkDescription: response.defaultDisclaimer,
-            logoPlaceholder: response.logoPlaceholder,
-            logoType: config.style.logoType,
-            payPalAlign: config.style.textAlign,
-            payPalColor: config.style.color,
-            productGroup: response.productGroup
-        )
+        switch (source, fetchedResponse) {
+        case let (.config(config), .some(response)):
+            return parameterBuilder.makeParameters(
+                message: response.defaultMainContent,
+                messageAlternative: response.defaultMainAlternative,
+                offerType: response.offerType,
+                linkDescription: response.defaultDisclaimer,
+                logoPlaceholder: response.logoPlaceholder,
+                logoType: config.style.logoType,
+                payPalAlign: config.style.textAlign,
+                payPalColor: config.style.color,
+                productGroup: response.productGroup)
+
+        case let (.response(response, config), _):
+            return parameterBuilder.makeParameters(
+                message: response.defaultMainContent,
+                messageAlternative: response.defaultMainAlternative,
+                offerType: response.offerType,
+                linkDescription: response.defaultDisclaimer,
+                logoPlaceholder: response.logoPlaceholder,
+                logoType: config.style.logoType,
+                payPalAlign: config.style.textAlign,
+                payPalColor: config.style.color,
+                productGroup: response.productGroup)
+
+        default:
+            return nil
+        }
     }
 
     // MARK: - Init
 
     init(
-        config: PayPalMessageConfig,
+        source: PayPalMessageSource,
         requester: MessageRequestable,
         merchantProfileProvider: MerchantProfileHashGetable,
         stateDelegate: PayPalMessageViewStateDelegate? = nil,
@@ -68,7 +90,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         delegate: PayPalMessageViewModelDelegate? = nil,
         messageView: PayPalMessageView
     ) {
-        self.config = config
+        self.source = source
         self.requester = requester
         self.merchantProfileProvider = merchantProfileProvider
         self.stateDelegate = stateDelegate
@@ -77,47 +99,20 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         self.messageView = messageView
         self.logger = AnalyticsLogger(.message(Weak(messageView)))
 
-        // Initial load.
-        applyConfig(config)
+        applySource(source)
     }
 
     // MARK: - Public API
 
-    /// Apply a new config.
-    func applyConfig(_ newConfig: PayPalMessageConfig) {
+    func applyConfig(_ config: PayPalMessageConfig) {
+        applySource(.config(config))
+    }
 
-        let oldFetchKey = lastFetchKey
-        let oldStyleKey = lastStyleKey
-
-        let newFetchKey = FetchKey(config: newConfig)
-        let newStyleKey = StyleKey(config: newConfig)
-
-        let fetchChanged = (newFetchKey != oldFetchKey)
-        let styleChanged = (newStyleKey != oldStyleKey)
-
-        // Store new config + keys
-        config = newConfig
-        lastFetchKey = newFetchKey
-        lastStyleKey = newStyleKey
-
-        // If identity changed (env/client/merchant), previous hash becomes invalid.
-        if let oldFetchKey, newFetchKey.identityChanged(vs: oldFetchKey) {
-            merchantProfileHash = nil
-        }
-
-        // If nothing changed and not forced -> already satisfied (sync).
-        if !fetchChanged, !styleChanged {
-            return
-        }
-
-        // Style-only update: if we already have a response, we can refresh UI without fetching.
-        if !fetchChanged, styleChanged, messageResponse != nil {
-            delegate?.refreshContent(messageParameters: self.messageParameters)
-            return
-        }
-
-        // Start fetching
-        fetchMessageContent()
+    func applyResponse(
+        _ response: PayPalMessageResponse,
+        config: PayPalMessageConfig
+    ) {
+        applySource(.response(response, config: config))
     }
 
     func showModal() {
@@ -142,12 +137,56 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         }
     }
 
+    func getConfig() -> PayPalMessageConfig {
+        switch source {
+        case let .config(config):
+            return config
+        case let .response(_, config):
+            return config
+        }
+    }
+
     // MARK: - Fetch
 
+    private func applySource(_ newSource: PayPalMessageSource) {
+
+        let oldSourceKey = ApplySourceKey(source)
+        let newSourceKey = ApplySourceKey(newSource)
+
+        guard newSourceKey != oldSourceKey else {
+            return
+        }
+
+        source = newSource
+
+        switch source {
+        case .config:
+            fetchMessageContent()
+
+        case .response:
+            delegate?.refreshContent(messageParameters: messageParameters)
+
+            isMessageViewInteractive = true
+
+            if let modal {
+                // `merchantProfileHash` is expected to be nil when the source is `.response`.
+                // If it's non-nil, it's likely a stale value left over from a previous `.config` apply.
+                // This is safe for now because the model currently doesn't use `merchantProfileHash`.
+                modal.merchantProfileHash = merchantProfileHash
+
+                modal.setConfig(makeModalConfig())
+            }
+        }
+    }
+
     private func fetchMessageContent() {
+        guard case let .config(config) = source else {
+            return
+        }
+
         renderStart = Date()
 
-        let fetchKeySnapshot = lastFetchKey
+        let keySnapshot = ApplySourceKey(source)
 
         if let stateDelegate, let messageView {
             stateDelegate.onLoading(messageView)
@@ -160,19 +199,18 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             onCompletion: { [weak self] hash in
                 guard
                     let self,
-                    self.lastFetchKey == fetchKeySnapshot
+                    keySnapshot == ApplySourceKey(self.source) // check if makes sense to continue
                 else { return }
 
                 self.merchantProfileHash = hash
-
                 let params = self.makeRequestParameters(merchantProfileHash: hash)
 
                 requester.fetchMessage(parameters: params) { result in
-
                     switch result {
-                    case .success(let response):
+                    case let .success(response):
                         self.onMessageRequestReceived(response: response)
-                    case .failure(let error):
+
+                    case let .failure(error):
                         self.onMessageRequestFailed(error: error)
                     }
                 }
@@ -182,7 +220,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
     // MARK: - Response handling
 
     private func onMessageRequestFailed(error: PayPalMessageError) {
-        messageResponse = nil
+        fetchedResponse = nil
 
         logger.addEvent(.messageError(
             errorName: error.issue ?? "\(error)",
@@ -197,8 +235,8 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         }
     }
 
-    private func onMessageRequestReceived(response: MessageResponse) {
-        messageResponse = response
+    private func onMessageRequestReceived(response: PayPalMessageResponse) {
+        fetchedResponse = response
         logger.dynamicData = response.trackingData
 
         delegate?.refreshContent(messageParameters: messageParameters)
@@ -219,26 +257,51 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
             stateDelegate.onSuccess(messageView)
         }
 
-        log(.debug, "onMessageRequestReceived: \(String(describing: response.defaultMainContent))", for: config.data.environment)
+        if case let .config(config) = source {
+            log(
+                .debug,
+                "onMessageRequestReceived: \(String(describing: response.defaultMainContent))",
+                for: config.data.environment)
+        }
     }
 
     // MARK: - Build request parameters
 
-    private func makeRequestParameters(merchantProfileHash: String?) -> MessageRequestParameters {
-        .init(
-            environment: config.data.environment,
-            clientID: config.data.clientID,
-            merchantID: config.data.merchantID,
-            partnerAttributionID: config.data.partnerAttributionID,
-            logoType: config.style.logoType,
-            buyerCountry: config.data.buyerCountry,
-            pageType: config.data.pageType,
-            amount: config.data.amount,
-            offerType: config.data.offerType,
-            merchantProfileHash: merchantProfileHash,
-            ignoreCache: config.data.ignoreCache,
-            instanceID: logger.instanceId
-        )
+    private func makeRequestParameters(
+        merchantProfileHash: String?
+    ) -> MessageRequestParameters {
+
+        switch source {
+        case let .config(config):
+            return MessageRequestParameters(
+                environment: config.data.environment,
+                clientID: config.data.clientID,
+                merchantID: config.data.merchantID,
+                partnerAttributionID: config.data.partnerAttributionID,
+                logoType: config.style.logoType,
+                buyerCountry: config.data.buyerCountry,
+                pageType: config.data.pageType,
+                amount: config.data.amount,
+                offerType: config.data.offerType,
+                merchantProfileHash: merchantProfileHash,
+                ignoreCache: config.data.ignoreCache,
+                instanceID: logger.instanceId)
+
+        case let .response(_, config):
+            return MessageRequestParameters(
+                environment: config.data.environment,
+                clientID: config.data.clientID,
+                merchantID: config.data.merchantID,
+                partnerAttributionID: config.data.partnerAttributionID,
+                logoType: config.style.logoType,
+                buyerCountry: config.data.buyerCountry,
+                pageType: config.data.pageType,
+                amount: config.data.amount,
+                offerType: config.data.offerType,
+                merchantProfileHash: merchantProfileHash,
+                ignoreCache: config.data.ignoreCache,
+                instanceID: logger.instanceId)
+        }
     }
 
     // MARK: - Modal config
@@ -300,50 +363,99 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
     func onCalculate(_ modal: PayPalMessageModal, data: PayPalMessageModalCalculateData) {}
     func onShow(_ modal: PayPalMessageModal) {}
     func onClose(_ modal: PayPalMessageModal) {}
+}
 
-    // MARK: - Helpers
+// MARK: -
 
-    private struct FetchKey: Equatable {
-        let environment: Environment
-        let clientID: String
-        let merchantID: String?
-        let partnerAttributionID: String?
-        let amount: String?
-        let pageType: PayPalMessagePageType?
-        let offerType: PayPalMessageOfferType?
-        let buyerCountry: String?
-        let channel: String
-        let logoType: PayPalMessageLogoType
-        // Intentionally excluding ignoreCache for local cache semantics.
+fileprivate struct ApplySourceKey: Equatable {
+    var config_clientID: String
+    var config_merchantID: String?
+    var config_partnerAttributionID: String?
+    var config_environment: Environment
+    var config_amount: String?
+    var config_pageType: PayPalMessagePageType?
+    var config_offerType: PayPalMessageOfferType?
+    var config_buyerCountry: String?
+    var config_channel: String
 
-        init(config: PayPalMessageConfig) {
-            environment = config.data.environment
-            clientID = config.data.clientID
-            merchantID = config.data.merchantID
-            partnerAttributionID = config.data.partnerAttributionID
-            amount = config.data.amount
-            pageType = config.data.pageType
-            offerType = config.data.offerType
-            buyerCountry = config.data.buyerCountry
-            channel = config.data.channel
-            logoType = config.style.logoType
-        }
+    var config_logoType: PayPalMessageLogoType?
+    var config_color: PayPalMessageColor?
+    var config_textAlign: PayPalMessageTextAlign?
 
-        func identityChanged(vs other: FetchKey) -> Bool {
-            environment != other.environment
-                || clientID != other.clientID
-                || merchantID != other.merchantID
-        }
-    }
+    var response_offerType: PayPalMessageResponseOfferType? = nil
+    var response_productGroup: PayPalMessageResponseProductGroup? = nil
 
-    private struct StyleKey: Equatable {
-        let color: PayPalMessageColor
-        let textAlign: PayPalMessageTextAlign
+    var response_modalCloseButtonWidth: Int? = nil
+    var response_modalCloseButtonHeight: Int? = nil
+    var response_modalCloseButtonAvailWidth: Int? = nil
+    var response_modalCloseButtonAvailHeight: Int? = nil
+    var response_modalCloseButtonColor: String? = nil
+    var response_modalCloseButtonColorType: String? = nil
+    var response_modalCloseButtonAlternativeText: String? = nil
 
-        init(config: PayPalMessageConfig) {
-            color = config.style.color
-            textAlign = config.style.textAlign
+    var response_defaultMainContent: String? = nil
+    var response_defaultMainAlternative: String? = nil
+    var response_defaultDisclaimer: String? = nil
+
+    var response_genericMainContent: String?
+    var response_genericMainAlternative: String? = nil
+    var response_genericDisclaimer: String? = nil
+
+    var response_logoPlaceholder: String? = nil
+
+    init(_ source: PayPalMessageSource) {
+
+        switch source {
+        case let .config(config):
+            config_clientID = config.data.clientID
+            config_merchantID = config.data.merchantID
+            config_partnerAttributionID = config.data.partnerAttributionID
+            config_environment = config.data.environment
+            config_amount = config.data.amount
+            config_pageType = config.data.pageType
+            config_offerType = config.data.offerType
+            config_buyerCountry = config.data.buyerCountry
+            config_channel = config.data.channel
+
+            config_logoType = config.style.logoType
+            config_color = config.style.color
+            config_textAlign = config.style.textAlign
+
+        case let .response(response, config):
+            config_clientID = config.data.clientID
+            config_merchantID = config.data.merchantID
+            config_partnerAttributionID = config.data.partnerAttributionID
+            config_environment = config.data.environment
+            config_amount = config.data.amount
+            config_pageType = config.data.pageType
+            config_offerType = config.data.offerType
+            config_buyerCountry = config.data.buyerCountry
+            config_channel = config.data.channel
+
+            config_logoType = config.style.logoType
+            config_color = config.style.color
+            config_textAlign = config.style.textAlign
+
+            response_offerType = response.offerType
+            response_productGroup = response.productGroup
+
+            response_modalCloseButtonWidth = response.modalCloseButtonWidth
+            response_modalCloseButtonHeight = response.modalCloseButtonHeight
+            response_modalCloseButtonAvailWidth = response.modalCloseButtonAvailWidth
+            response_modalCloseButtonAvailHeight = response.modalCloseButtonAvailHeight
+            response_modalCloseButtonColor = response.modalCloseButtonColor
+            response_modalCloseButtonColorType = response.modalCloseButtonColorType
+            response_modalCloseButtonAlternativeText = response.modalCloseButtonAlternativeText
+
+            response_defaultMainContent = response.defaultMainContent
+            response_defaultMainAlternative = response.defaultMainAlternative
+            response_defaultDisclaimer = response.defaultDisclaimer
+
+            response_genericMainContent = response.genericMainContent
+            response_genericMainAlternative = response.genericMainAlternative
+            response_genericDisclaimer = response.genericDisclaimer
+
+            response_logoPlaceholder = response.logoPlaceholder
         }
     }
 }
-
