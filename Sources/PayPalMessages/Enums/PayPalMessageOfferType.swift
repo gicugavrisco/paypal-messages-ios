@@ -11,7 +11,7 @@ public enum PayPalMessageOfferType: String, Decodable, CaseIterable {
 }
 
 /// Preferred message offer to display. The response is different from the request type, since it allows for Generic responses.
-enum PayPalMessageResponseOfferType: String, Decodable {
+public enum PayPalMessageResponseOfferType: String, Decodable {
     /// Pay Later short term installment
     case payLaterShortTerm = "PAY_LATER_SHORT_TERM"
     /// Pay Later long term installments
@@ -25,7 +25,7 @@ enum PayPalMessageResponseOfferType: String, Decodable {
 }
 
 /// Top level product group
-enum PayPalMessageResponseProductGroup: String, Decodable {
+public enum PayPalMessageResponseProductGroup: String, Decodable {
     /// Pay Later
     case payLater = "PAY_LATER"
     /// PayPal Credit

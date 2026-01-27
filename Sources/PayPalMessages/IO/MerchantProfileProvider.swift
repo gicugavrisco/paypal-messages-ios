@@ -6,19 +6,11 @@ protocol MerchantProfileHashGetable {
         environment: Environment,
         clientID: String,
         merchantID: String?,
+        timeout: TimeInterval?,
         onCompletion: @escaping (String?) -> Void)
 }
 
-final class MerchantProfileProvider: MerchantProfileHashGetable {
-    static let shared = MerchantProfileProvider(request: MerchantProfileRequest())
-
-    private let request: MerchantProfileRequestable
-    private var cachedResults: [String : Result<MerchantProfileData, Error>] = [:]
-    private var inFlightCompletions: [String: [(String?) -> Void]] = [:]
-
-    private init(request: MerchantProfileRequestable) {
-        self.request = request
-    }
+extension MerchantProfileHashGetable {
 
     func getMerchantProfileHash(
         environment: Environment,
@@ -26,89 +18,135 @@ final class MerchantProfileProvider: MerchantProfileHashGetable {
         merchantID: String?,
         onCompletion: @escaping (String?) -> Void
     ) {
-
-        let cacheKey = makeRequestKey(environment, clientID, merchantID)
-
-        if let cached = cachedResults[cacheKey] {
-            if let value = try? cached.get(), Date() < value.ttlHard {
-
-                if Date() > value.ttlSoft {
-                    requestMerchantProfile(
-                        environment: environment,
-                        clientID: clientID,
-                        merchantID: merchantID,
-                        cacheKey: cacheKey)
-                }
-
-                onCompletion(value.disabled ? nil : value.hash)
-                return
-
-            } else {
-                onCompletion(nil)
-                return
-            }
-        }
-
-        // De-dup: join existing request or start a new one.
-        if inFlightCompletions[cacheKey] != nil {
-            inFlightCompletions[cacheKey]?.append(onCompletion)
-            return
-
-        } else {
-            inFlightCompletions[cacheKey] = [onCompletion]
-        }
-
-        requestMerchantProfile(
+        getMerchantProfileHash(
             environment: environment,
             clientID: clientID,
             merchantID: merchantID,
-            cacheKey: cacheKey)
+            timeout: nil,
+            onCompletion: onCompletion)
+    }
+}
+
+class MerchantProfileProvider: MerchantProfileHashGetable {
+    private let merchantProfileRequest: MerchantProfileRequestable
+
+    init(merchantProfileRequest: MerchantProfileRequestable = MerchantProfileRequest()) {
+        self.merchantProfileRequest = merchantProfileRequest
     }
 
-    // MARK: - API Fetch Methods (dedup wrapper)
+    func getMerchantProfileHash(
+        environment: Environment,
+        clientID: String,
+        merchantID: String?,
+        timeout: TimeInterval?,
+        onCompletion: @escaping (String?) -> Void
+    ) {
+        let currentDate = Date()
+
+        // hash must be inside ttl and non-null
+        guard
+            let merchantProfileData = getCachedMerchantProfileData(
+                clientID: clientID,
+                merchantID: merchantID),
+            currentDate < merchantProfileData.ttlHard
+        else {
+
+            requestMerchantProfile(
+                environment: environment,
+                clientID: clientID,
+                merchantID: merchantID,
+                timeout: timeout,
+                onCompletion: { merchantProfiledData in
+                    guard let merchantProfiledData = merchantProfiledData else {
+                        onCompletion(nil)
+                        return
+                    }
+
+                    onCompletion(merchantProfiledData.disabled ? nil : merchantProfiledData.hash)
+                })
+
+            return
+        }
+
+        // if date is outside soft-ttl window, re-request data
+        if currentDate > merchantProfileData.ttlSoft {
+            // ignores the response as it will return hashed value
+            requestMerchantProfile(
+                environment: environment,
+                clientID: clientID,
+                merchantID: merchantID,
+                timeout: nil, // doen't make sense to have a timeout
+                onCompletion: { _ in })
+        }
+
+        onCompletion(merchantProfileData.disabled ? nil : merchantProfileData.hash)
+    }
 
     private func requestMerchantProfile(
         environment: Environment,
         clientID: String,
         merchantID: String?,
-        cacheKey: String
+        timeout: TimeInterval?,
+        onCompletion: @escaping (MerchantProfileData?) -> Void
     ) {
-
-        request.fetchMerchantProfile(
+        merchantProfileRequest.fetchMerchantProfile(
             environment: environment,
             clientID: clientID,
             merchantID: merchantID,
+            timeout: timeout,
             onCompletion: { [weak self] result in
-                guard let self else { return }
 
                 switch result {
                 case let .success(merchantProfileData):
-                    log(.debug, "Merchant Request Hash succeeded with \(merchantProfileData.hash)", for: environment)
+                    log(
+                        .debug,
+                        "Merchant Request Hash succeeded with \(merchantProfileData.hash)",
+                        for: environment)
+
+                    self?.setCachedMerchantProfileData(
+                        merchantProfileData,
+                        clientID: clientID,
+                        merchantID: merchantID)
+
+                    onCompletion(merchantProfileData)
 
                 case let .failure(error):
-                    log(.debug, "Merchant Request Hash failed with \(error.localizedDescription)", for: environment)
-                }
-
-                self.cachedResults[cacheKey] = result
-
-                let completions = self.inFlightCompletions.removeValue(forKey: cacheKey) ?? []
-
-                completions.forEach {
-                    if let value = try? result.get() {
-                        $0(value.disabled ? nil : value.hash)
-                    } else {
-                        $0(nil)
-                    }
+                    log(
+                        .debug,
+                        "Merchant Request Hash failed with \(error.localizedDescription)",
+                        for: environment)
+                    
+                    onCompletion(nil)
                 }
             })
     }
 
-    private func makeRequestKey(
-        _ environment: Environment,
-        _ clientID: String,
-        _ merchantID: String?
-    ) -> String {
+    // MARK: - User Defaults Methods
 
-        "\(environment)|\(clientID)|\(merchantID ?? "")"
+    private func getCachedMerchantProfileData(
+        clientID: String,
+        merchantID: String?
+    ) -> MerchantProfileData? {
+
+        guard
+            let cachedData = UserDefaults.getMerchantProfileData(
+                forClientID: clientID,
+                merchantID: merchantID)
+        else { return nil }
+
+        return try? JSONDecoder().decode(MerchantProfileData.self, from: cachedData)
+    }
+
+    private func setCachedMerchantProfileData(
+        _ data: MerchantProfileData,
+        clientID: String,
+        merchantID: String?
+    ) {
+        let encodedData = try? JSONEncoder().encode(data)
+
+        UserDefaults.setMerchantProfileData(
+            encodedData,
+            forClientID: clientID,
+            merchantID: merchantID)
     }
 }

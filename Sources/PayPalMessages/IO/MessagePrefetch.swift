@@ -2,94 +2,124 @@ import Foundation
 
 public final class MessagePrefetch {
 
-    public static let shared = MessagePrefetch(
-        requester: MessageRequest.shared,
-        merchantProfileProvider: MerchantProfileProvider.shared
-    )
-
     private let requester: MessageRequestable
-    private let merchantProfileProvider: MerchantProfileHashGetable
+    private let profileProvider: MerchantProfileHashGetable
+    private let perRequestTimeout: TimeInterval?
 
-    private init(
+    internal init(
         requester: MessageRequestable,
-        merchantProfileProvider: MerchantProfileHashGetable
+        profileProvider: MerchantProfileHashGetable,
+        perRequestTimeout: TimeInterval? = nil
     ) {
         self.requester = requester
-        self.merchantProfileProvider = merchantProfileProvider
+        self.profileProvider = profileProvider
+        self.perRequestTimeout = perRequestTimeout
     }
 
-    /// Results are aligned by index with the input `configs`.
-    /// `results.count == configs.count`
+    public convenience init(perRequestTimeout: TimeInterval? = nil) {
+        self.init(
+            requester: MessageRequest(),
+            profileProvider: MerchantProfileProvider(),
+            perRequestTimeout: perRequestTimeout)
+    }
+
     public func prefetch(
         configs: [PayPalMessageConfig],
-        completion: @escaping ([Result<Void, Error>]) -> Void
+        onCompletion: @escaping ([Result<PayPalMessageConfigData, Error>]) -> Void
     ) {
         guard !configs.isEmpty else {
-            completion([])
+            onCompletion([])
             return
         }
 
-        // Index-aligned results
-        var results = Array<Result<Void, Error>?>(repeating: nil, count: configs.count)
+        // Pre-fill with defensive fallback.
+        // Will be overwritten on success/failure per config.
+        var results: [Result<PayPalMessageConfigData, Error>] = Array(
+            repeating: .failure(PrefetchError.incomplete),
+            count: configs.count)
+
         let group = DispatchGroup()
 
-        for (index, config) in configs.enumerated() {
+        configs.enumerated().forEach { index, config in
             group.enter()
 
-            merchantProfileProvider.getMerchantProfileHash(
+            profileProvider.getMerchantProfileHash(
                 environment: config.data.environment,
                 clientID: config.data.clientID,
-                merchantID: config.data.merchantID
-            ) { [weak self] hash in
+                merchantID: config.data.merchantID,
+                timeout: perRequestTimeout,
+                onCompletion: { [weak self] hash in
 
-                guard let self else {
-                    DispatchQueue.main.async {
+                    guard let self else {
                         results[index] = .failure(PrefetchError.deallocated)
                         group.leave()
+                        return
                     }
-                    return
-                }
 
-                let params = MessageRequestParameters(
-                    environment: config.data.environment,
-                    clientID: config.data.clientID,
-                    merchantID: config.data.merchantID,
-                    partnerAttributionID: config.data.partnerAttributionID,
-                    logoType: config.style.logoType,
-                    buyerCountry: config.data.buyerCountry,
-                    pageType: config.data.pageType,
-                    amount: config.data.amount,
-                    offerType: config.data.offerType,
-                    merchantProfileHash: hash,
-                    ignoreCache: false,
-                    instanceID: "prefetch"
-                )
+                    let params = MessageRequestParameters(
+                        environment: config.data.environment,
+                        clientID: config.data.clientID,
+                        merchantID: config.data.merchantID,
+                        partnerAttributionID: config.data.partnerAttributionID,
+                        logoType: config.style.logoType,
+                        buyerCountry: config.data.buyerCountry,
+                        pageType: config.data.pageType,
+                        amount: config.data.amount,
+                        offerType: config.data.offerType,
+                        merchantProfileHash: hash,
+                        ignoreCache: true,
+                        instanceID: "prefetch"
+                    )
 
-                self.requester.fetchMessage(parameters: params) { fetchResult in
-                    // Preserve PayPalMessageError as Error
-                    let mapped: Result<Void, Error> = fetchResult
-                        .map { _ in () }
-                        .mapError { $0 as Error }
+                    self.requester.fetchMessage(
+                        parameters: params,
+                        timeout: perRequestTimeout,
+                        onCompletion: { fetchResult in
 
-                    DispatchQueue.main.async {
-                        results[index] = mapped
-                        group.leave()
-                    }
-                }
-            }
+                            // Preserve PayPalMessageError as Error
+                            let mapped: Result<PayPalMessageConfigData, Error> = fetchResult
+                                .map { PayPalMessageConfigData(response: $0) }
+                                .mapError { $0 as Error }
+
+                            results[index] = mapped
+                            group.leave()
+                        })
+                })
         }
 
         group.notify(queue: .main) {
-            // Defensive fallback: any missing entry becomes an error
-            let finalized = results.map { $0 ?? .failure(PrefetchError.incomplete) }
-            completion(finalized)
+            onCompletion(results)
         }
     }
 }
 
 private extension MessagePrefetch {
+
     enum PrefetchError: Error {
         case deallocated
         case incomplete
+    }
+}
+
+private extension PayPalMessageConfigData {
+
+    convenience init(response: PayPalMessageResponse) {
+        self.init(
+            offerType: response.offerType,
+            productGroup: response.productGroup,
+            modalCloseButtonWidth: response.modalCloseButtonWidth,
+            modalCloseButtonHeight: response.modalCloseButtonHeight,
+            modalCloseButtonAvailWidth: response.modalCloseButtonAvailWidth,
+            modalCloseButtonAvailHeight: response.modalCloseButtonAvailHeight,
+            modalCloseButtonColor: response.modalCloseButtonColor,
+            modalCloseButtonColorType: response.modalCloseButtonColorType,
+            modalCloseButtonAlternativeText: response.modalCloseButtonAlternativeText,
+            defaultMainContent: response.defaultMainContent,
+            defaultMainAlternative: response.defaultMainAlternative,
+            defaultDisclaimer: response.defaultDisclaimer,
+            genericMainContent: response.genericMainContent,
+            genericMainAlternative: response.genericMainAlternative,
+            genericDisclaimer: response.genericDisclaimer,
+            logoPlaceholder: response.logoPlaceholder)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PayPalMessageResponse: Decodable {
+struct PayPalMessageResponse: Decodable {
 
     // MARK: - Attributes
 

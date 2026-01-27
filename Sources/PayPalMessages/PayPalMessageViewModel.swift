@@ -16,11 +16,27 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
 
     private var messageResponse: PayPalMessageResponse? {
         switch source {
-        case let .config(config):
+        case .config:
             return fetchedResponse
 
-        case let .response(response, _):
-            return response
+        case let .data(data, _):
+            return PayPalMessageResponse(
+                offerType: data.offerType,
+                productGroup: data.productGroup,
+                defaultMainContent: data.defaultMainContent,
+                defaultMainAlternative: data.defaultMainAlternative,
+                defaultDisclaimer: data.defaultDisclaimer,
+                genericMainContent: data.genericMainContent,
+                genericMainAlternative: data.genericMainAlternative,
+                genericDisclaimer: data.genericDisclaimer,
+                logoPlaceholder: data.logoPlaceholder,
+                modalCloseButtonWidth: data.modalCloseButtonWidth,
+                modalCloseButtonHeight: data.modalCloseButtonHeight,
+                modalCloseButtonAvailWidth: data.modalCloseButtonAvailWidth,
+                modalCloseButtonAvailHeight: data.modalCloseButtonAvailHeight,
+                modalCloseButtonColor: data.modalCloseButtonColor,
+                modalCloseButtonColorType: data.modalCloseButtonColorType,
+                modalCloseButtonAlternativeText: data.modalCloseButtonAlternativeText)
 
         default:
             return nil
@@ -32,7 +48,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         case let .config(config):
             return config
 
-        case let .response(_, config):
+        case let .data(_, config):
             return config
         }
     }
@@ -62,17 +78,17 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
                 payPalColor: config.style.color,
                 productGroup: response.productGroup)
 
-        case let (.response(response, config), _):
+        case let (.data(data, config), _):
             return parameterBuilder.makeParameters(
-                message: response.defaultMainContent,
-                messageAlternative: response.defaultMainAlternative,
-                offerType: response.offerType,
-                linkDescription: response.defaultDisclaimer,
-                logoPlaceholder: response.logoPlaceholder,
+                message: data.defaultMainContent,
+                messageAlternative: data.defaultMainAlternative,
+                offerType: data.offerType,
+                linkDescription: data.defaultDisclaimer,
+                logoPlaceholder: data.logoPlaceholder,
                 logoType: config.style.logoType,
                 payPalAlign: config.style.textAlign,
                 payPalColor: config.style.color,
-                productGroup: response.productGroup)
+                productGroup: data.productGroup)
 
         default:
             return nil
@@ -99,7 +115,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         self.messageView = messageView
         self.logger = AnalyticsLogger(.message(Weak(messageView)))
 
-        applySource(source)
+        applySource(source, force: true)
     }
 
     // MARK: - Public API
@@ -108,11 +124,40 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         applySource(.config(config))
     }
 
-    func applyResponse(
-        _ response: PayPalMessageResponse,
+    func applyData(
+        _ data: PayPalMessageConfigData,
         config: PayPalMessageConfig
     ) {
-        applySource(.response(response, config: config))
+        applySource(.data(data, config: config))
+    }
+
+    func applySource(_ newSource: PayPalMessageSource, force: Bool = false) {
+
+        let oldSourceKey = ApplySourceKey(source)
+        let newSourceKey = ApplySourceKey(newSource)
+
+        guard newSourceKey != oldSourceKey || force else {
+            return
+        }
+
+        source = newSource
+
+        switch source {
+        case .config:
+            fetchMessageContent()
+
+        case .data:
+            delegate?.refreshContent(messageParameters: messageParameters)
+
+            isMessageViewInteractive = true
+
+            if let modal {
+                // `merchantProfileHash` is expected to be nil when the source is `.response`.
+                // This is safe for now because the model currently doesn't use `merchantProfileHash`.
+                modal.merchantProfileHash = nil
+                modal.setConfig(makeModalConfig())
+            }
+        }
     }
 
     func showModal() {
@@ -141,43 +186,12 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
         switch source {
         case let .config(config):
             return config
-        case let .response(_, config):
+        case let .data(_, config):
             return config
         }
     }
 
     // MARK: - Fetch
-
-    private func applySource(_ newSource: PayPalMessageSource) {
-
-        let oldSourceKey = ApplySourceKey(source)
-        let newSourceKey = ApplySourceKey(newSource)
-
-        guard newSourceKey != oldSourceKey else {
-            return
-        }
-
-        source = newSource
-
-        switch source {
-        case .config:
-            fetchMessageContent()
-
-        case .response:
-            delegate?.refreshContent(messageParameters: messageParameters)
-
-            isMessageViewInteractive = true
-
-            if let modal {
-                // `merchantProfileHash` is expected to be nil when the source is `.response`.
-                // If it's non-nil, it's likely a stale value left over from a previous `.config` apply.
-                // This is safe for now because the model currently doesn't use `merchantProfileHash`.
-                modal.merchantProfileHash = merchantProfileHash
-
-                modal.setConfig(makeModalConfig())
-            }
-        }
-    }
 
     private func fetchMessageContent() {
         guard case let .config(config) = source else {
@@ -205,7 +219,12 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
                 self.merchantProfileHash = hash
                 let params = self.makeRequestParameters(merchantProfileHash: hash)
 
-                requester.fetchMessage(parameters: params) { result in
+                requester.fetchMessage(parameters: params) { [weak self] result in
+                    guard
+                        let self,
+                        keySnapshot == ApplySourceKey(self.source)
+                    else { return }
+
                     switch result {
                     case let .success(response):
                         self.onMessageRequestReceived(response: response)
@@ -287,7 +306,7 @@ final class PayPalMessageViewModel: PayPalMessageModalEventDelegate {
                 ignoreCache: config.data.ignoreCache,
                 instanceID: logger.instanceId)
 
-        case let .response(_, config):
+        case let .data(_, config):
             return MessageRequestParameters(
                 environment: config.data.environment,
                 clientID: config.data.clientID,
@@ -421,7 +440,7 @@ fileprivate struct ApplySourceKey: Equatable {
             config_color = config.style.color
             config_textAlign = config.style.textAlign
 
-        case let .response(response, config):
+        case let .data(data, config):
             config_clientID = config.data.clientID
             config_merchantID = config.data.merchantID
             config_partnerAttributionID = config.data.partnerAttributionID
@@ -436,26 +455,26 @@ fileprivate struct ApplySourceKey: Equatable {
             config_color = config.style.color
             config_textAlign = config.style.textAlign
 
-            response_offerType = response.offerType
-            response_productGroup = response.productGroup
+            response_offerType = data.offerType
+            response_productGroup = data.productGroup
 
-            response_modalCloseButtonWidth = response.modalCloseButtonWidth
-            response_modalCloseButtonHeight = response.modalCloseButtonHeight
-            response_modalCloseButtonAvailWidth = response.modalCloseButtonAvailWidth
-            response_modalCloseButtonAvailHeight = response.modalCloseButtonAvailHeight
-            response_modalCloseButtonColor = response.modalCloseButtonColor
-            response_modalCloseButtonColorType = response.modalCloseButtonColorType
-            response_modalCloseButtonAlternativeText = response.modalCloseButtonAlternativeText
+            response_modalCloseButtonWidth = data.modalCloseButtonWidth
+            response_modalCloseButtonHeight = data.modalCloseButtonHeight
+            response_modalCloseButtonAvailWidth = data.modalCloseButtonAvailWidth
+            response_modalCloseButtonAvailHeight = data.modalCloseButtonAvailHeight
+            response_modalCloseButtonColor = data.modalCloseButtonColor
+            response_modalCloseButtonColorType = data.modalCloseButtonColorType
+            response_modalCloseButtonAlternativeText = data.modalCloseButtonAlternativeText
 
-            response_defaultMainContent = response.defaultMainContent
-            response_defaultMainAlternative = response.defaultMainAlternative
-            response_defaultDisclaimer = response.defaultDisclaimer
+            response_defaultMainContent = data.defaultMainContent
+            response_defaultMainAlternative = data.defaultMainAlternative
+            response_defaultDisclaimer = data.defaultDisclaimer
 
-            response_genericMainContent = response.genericMainContent
-            response_genericMainAlternative = response.genericMainAlternative
-            response_genericDisclaimer = response.genericDisclaimer
+            response_genericMainContent = data.genericMainContent
+            response_genericMainAlternative = data.genericMainAlternative
+            response_genericDisclaimer = data.genericDisclaimer
 
-            response_logoPlaceholder = response.logoPlaceholder
+            response_logoPlaceholder = data.logoPlaceholder
         }
     }
 }

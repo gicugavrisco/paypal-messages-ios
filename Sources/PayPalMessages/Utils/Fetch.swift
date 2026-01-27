@@ -15,13 +15,17 @@ func fetch(
     headers: HTTPHeaders? = nil,
     body: Data? = nil,
     session: URLSession = URLSession.shared,
+    timeoutInterval: TimeInterval? = nil,
     fetchQueue: DispatchQueue = DispatchQueue.global(qos: .default),
-    completionQueue: DispatchQueue? = DispatchQueue.main,
+    completionQueue: DispatchQueue = DispatchQueue.main,
     completion: @escaping (Data?, URLResponse?, Error?) -> Void
 ) {
     fetchQueue.async {
-        let queue = completionQueue ?? fetchQueue
         var request = URLRequest(url: url)
+
+        if let timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
 
         request.httpMethod = method.rawValue
 
@@ -35,11 +39,11 @@ func fetch(
 
         let task = session.dataTask(with: request) { data, response, error in
             guard let data, error == nil else {
-                queue.async { completion(nil, response, error) }
+                completionQueue.async { completion(nil, response, error) }
                 return
             }
 
-            queue.async { completion(data, response, nil) }
+            completionQueue.async { completion(data, response, nil) }
         }
 
         task.resume()

@@ -21,17 +21,24 @@ protocol MessageRequestable {
 
     func fetchMessage(
         parameters: MessageRequestParameters,
+        timeout: TimeInterval?,
         onCompletion: @escaping MessageRequestCompletion)
 }
 
-/// Contract:
-/// - `fetchMessage` is expected to be called on the main thread.
-/// - Local cache + in-flight de-dup state is main-thread confined (no locks / queues).
-/// - Network callback may arrive off-main; we hop to main before touching state and before calling completions.
-final class MessageRequest: MessageRequestable {
+extension MessageRequestable {
 
-    static let shared = MessageRequest()
-    private init() {}
+    func fetchMessage(
+        parameters: MessageRequestParameters,
+        onCompletion: @escaping MessageRequestCompletion
+    ) {
+        fetchMessage(
+            parameters: parameters,
+            timeout: nil,
+            onCompletion: onCompletion)
+    }
+}
+
+final class MessageRequest: MessageRequestable {
 
     private let headers: [HTTPHeader: String] = [
         .acceptLanguage: "en_US",
@@ -39,14 +46,16 @@ final class MessageRequest: MessageRequestable {
         .accept: "application/json"
     ]
 
-    /// Cache key -> last result (success OR failure)
-    private var cachedResults: [String: Result<PayPalMessageResponse, PayPalMessageError>] = [:]
-
-    /// Cache key -> completions waiting for the same request
-    private var inFlightCompletions: [String: [MessageRequestCompletion]] = [:]
+    func fetchMessage(
+        parameters: MessageRequestParameters,
+        onCompletion: @escaping MessageRequestCompletion
+    ) {
+        fetchMessage(parameters: parameters, timeout: nil, onCompletion: onCompletion)
+    }
 
     func fetchMessage(
         parameters: MessageRequestParameters,
+        timeout: TimeInterval? = nil,
         onCompletion: @escaping MessageRequestCompletion
     ) {
 
@@ -55,63 +64,23 @@ final class MessageRequest: MessageRequestable {
             return
         }
 
-        // If we cannot build a stable cache key, we cannot cache or de-dup.
-        guard let cacheKey = makeCacheKey(from: parameters) else {
-            startNetwork(url: url, parameters: parameters, cacheKey: nil, onCompletion: onCompletion)
-            return
-        }
+        log(.debug, "fetchMessage URL: \(url)", for: parameters.environment)
 
-        // Synchronous cache hit (success OR failure).
-        if let cached = cachedResults[cacheKey] {
-            onCompletion(cached)
-            return
-        }
+        fetch(
+            url,
+            headers: headers,
+            session: parameters.environment.urlSession,
+            timeoutInterval: timeout,
+            completionQueue: .main
+        ) { [weak self] data, response, _ in
 
-        // De-dup: join existing request or start a new one.
-        if inFlightCompletions[cacheKey] != nil {
-            inFlightCompletions[cacheKey]!.append(onCompletion)
-            return
-        } else {
-            inFlightCompletions[cacheKey] = [onCompletion]
-        }
-
-        startNetwork(url: url, parameters: parameters, cacheKey: cacheKey, onCompletion: onCompletion)
-    }
-
-    // MARK: - Network + Decode
-
-    private func startNetwork(
-        url: URL,
-        parameters: MessageRequestParameters,
-        cacheKey: String?,
-        onCompletion: @escaping MessageRequestCompletion
-    ) {
-        log(.debug, "fetchMessage URL is \(url)", for: parameters.environment)
-
-        fetch(url, headers: headers, session: parameters.environment.urlSession) { [weak self] data, response, _ in
             guard let self else { return }
 
             let result: Result<PayPalMessageResponse, PayPalMessageError> = self.decodeResult(
                 data: data,
-                response: response
-            )
+                response: response)
 
-            DispatchQueue.main.async {
-                // If no cacheKey, no caching/dedup – just return result to this caller.
-                guard let cacheKey else {
-                    onCompletion(result)
-                    return
-                }
-
-                // Drain all callers waiting for this request.
-                let completions = self.inFlightCompletions.removeValue(forKey: cacheKey) ?? []
-
-                // Cache success OR failure.
-                self.cachedResults[cacheKey] = result
-
-                // Fan-out.
-                completions.forEach { $0(result) }
-            }
+            onCompletion(result)
         }
     }
 
@@ -119,22 +88,25 @@ final class MessageRequest: MessageRequestable {
         data: Data?,
         response: URLResponse?
     ) -> Result<PayPalMessageResponse, PayPalMessageError> {
+
         guard let http = response as? HTTPURLResponse else {
             return .failure(.invalidResponse())
         }
 
         switch http.statusCode {
         case 200:
-            guard let data, let messageResponse = try? JSONDecoder().decode(PayPalMessageResponse.self, from: data) else {
-                return .failure(.invalidResponse(paypalDebugID: http.paypalDebugID))
-            }
+            guard
+                let data,
+                let messageResponse = try? JSONDecoder().decode(PayPalMessageResponse.self, from: data)
+            else { return .failure(.invalidResponse(paypalDebugID: http.paypalDebugID)) }
+
             return .success(messageResponse)
 
         default:
-            guard let data,
-                  let responseError = try? JSONDecoder().decode(ResponseError.self, from: data) else {
-                return .failure(.invalidResponse(paypalDebugID: http.paypalDebugID))
-            }
+            guard
+                let data,
+                let responseError = try? JSONDecoder().decode(ResponseError.self, from: data)
+            else { return .failure(.invalidResponse(paypalDebugID: http.paypalDebugID)) }
 
             return .failure(.invalidResponse(
                 paypalDebugID: responseError.paypalDebugID,
@@ -144,9 +116,8 @@ final class MessageRequest: MessageRequestable {
         }
     }
 
-    // MARK: - URL / Keys
-
     private func makeURL(from parameters: MessageRequestParameters) -> URL? {
+
         let queryParams: [String: String?] = [
             "client_id": parameters.clientID,
             "merchant_id": parameters.merchantID,
@@ -163,39 +134,44 @@ final class MessageRequest: MessageRequestable {
             "integration_type": BuildInfo.integrationType,
             "integration_version": AnalyticsLogger.integrationVersion,
             "integration_name": AnalyticsLogger.integrationName
-        ].filter {
+        ]
+        .filter {
             guard let value = $0.value else { return false }
             return !value.isEmpty && value.lowercased() != "false"
         }
 
         return parameters.environment.url(.message, queryParams)
     }
+}
 
-    /// Local cache key excludes: instance_id, ignore_cache, merchant_config (hash).
-    private func makeCacheKey(from parameters: MessageRequestParameters) -> String? {
-        let queryParams: [String: String?] = [
-            "client_id": parameters.clientID,
-            "merchant_id": parameters.merchantID,
-            "partner_attribution_id": parameters.partnerAttributionID,
-            "logo_type": parameters.logoType.rawValue,
-            "buyer_country": parameters.buyerCountry,
-            "page_type": parameters.pageType?.rawValue,
-            "amount": parameters.amount,
-            "offer": parameters.offerType?.rawValue,
-            "version": BuildInfo.version,
-            "integration_type": BuildInfo.integrationType,
-            "integration_version": AnalyticsLogger.integrationVersion,
-            "integration_name": AnalyticsLogger.integrationName
-        ]
+// MARK: -
 
-        let parts = queryParams
-            .compactMap { key, value -> String? in
-                guard let value, !value.isEmpty, value.lowercased() != "false" else { return nil }
-                return "\(key)=\(value)"
-            }
-            .sorted()
-            .joined(separator: "&")
+fileprivate struct MessageRequestIdentityKey: Equatable {
+    let environmentKey: String
+    let clientID: String
+    let merchantID: String?
+    let partnerAttributionID: String?
+    let logoType: String
+    let buyerCountry: String?
+    let pageType: String?
+    let amount: String?
+    let offerType: String?
+    let merchantProfileHash: String?
+    let ignoreCache: Bool
+    let instanceID: String
 
-        return "\(parameters.environment)|\(parts)"
+    init(_ parameters: MessageRequestParameters) {
+        self.environmentKey = parameters.environment.rawValue
+        self.clientID = parameters.clientID
+        self.merchantID = parameters.merchantID
+        self.partnerAttributionID = parameters.partnerAttributionID
+        self.logoType = parameters.logoType.rawValue
+        self.buyerCountry = parameters.buyerCountry
+        self.pageType = parameters.pageType?.rawValue
+        self.amount = parameters.amount
+        self.offerType = parameters.offerType?.rawValue
+        self.merchantProfileHash = parameters.merchantProfileHash
+        self.ignoreCache = parameters.ignoreCache
+        self.instanceID = parameters.instanceID
     }
 }

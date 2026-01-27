@@ -1,12 +1,13 @@
 import Foundation
 
 protocol MerchantProfileRequestable {
+
     func fetchMerchantProfile(
         environment: Environment,
         clientID: String,
         merchantID: String?,
-        onCompletion: @escaping (Result<MerchantProfileData, Error>) -> Void
-    )
+        timeout: TimeInterval?,
+        onCompletion: @escaping (Result<MerchantProfileData, Error>) -> Void)
 }
 
 class MerchantProfileRequest: MerchantProfileRequestable {
@@ -29,6 +30,7 @@ class MerchantProfileRequest: MerchantProfileRequestable {
         environment: Environment,
         clientID: String,
         merchantID: String?,
+        timeout: TimeInterval?,
         onCompletion: @escaping (Result<MerchantProfileData, Error>) -> Void
     ) {
         guard let url = environment.url(.merchantProfile, ["client_id": clientID, "merchant_id": merchantID]) else {
@@ -38,7 +40,13 @@ class MerchantProfileRequest: MerchantProfileRequestable {
 
         log(.debug, "fetcheMerchantProfile URL is \(url)", for: environment)
 
-        fetch(url, headers: headers, session: environment.urlSession) { data, _, error in
+        fetch(
+            url,
+            headers: headers,
+            session: environment.urlSession,
+            timeoutInterval: timeout
+        ) { data, _, error in
+
             guard let data = data, error == nil else {
                 onCompletion(.failure(RequestError.invalidResponse))
                 return

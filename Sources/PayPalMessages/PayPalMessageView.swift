@@ -50,8 +50,8 @@ public final class PayPalMessageView: UIControl {
             source: source,
             stateDelegate: stateDelegate,
             eventDelegate: eventDelegate,
-            requester: MessageRequest.shared,
-            merchantProfileProvider: MerchantProfileProvider.shared
+            requester: MessageRequest(),
+            merchantProfileProvider: MerchantProfileProvider()
         )
     }
 
@@ -93,9 +93,14 @@ public final class PayPalMessageView: UIControl {
         viewModel.applyConfig(config)
     }
 
-    /// Applies an already fetched config.
-    public func setResponse(_ response: PayPalMessageResponse, config: PayPalMessageConfig) {
-        viewModel.applyResponse(response, config: config)
+    /// Applies an already fetched config data.
+    public func setData(_ data: PayPalMessageConfigData, config: PayPalMessageConfig) {
+        viewModel.applyData(data, config: config)
+    }
+
+    /// Applies a source
+    public func setSource(_ source: PayPalMessageSource) {
+        viewModel.applySource(source)
     }
 
     public func getConfig() -> PayPalMessageConfig {
@@ -238,8 +243,8 @@ extension PayPalMessageView {
             case let .config(config):
                 view.setConfig(config)
 
-            case let .response(response, config):
-                view.setResponse(response, config: config)
+            case let .data(data, config):
+                view.setData(data, config: config)
             }
         }
     }
